@@ -1,0 +1,299 @@
+// WattPilot Database Schema
+// Target: V1 MVP
+// Designed with V1.5 (Tibber) extension in mind.
+// V2 smart-home devices should be introduced by refactoring rather than premature abstraction.
+
+Enum user_status {
+  ACTIVE
+  INACTIVE
+}
+
+Enum ev_status {
+  ACTIVE
+  INACTIVE
+}
+
+Enum price_provider {
+  HVA_KOSTER_STROMMEN
+  TIBBER
+}
+
+Enum charging_request_status {
+  PENDING
+  SCHEDULED
+  CANCELLED
+  COMPLETED
+  FAILED
+}
+
+Enum charging_schedule_status {
+  CREATED
+  WAITING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  FAILED
+}
+
+Enum charging_session_status {
+  STARTED
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+Table users {
+  id bigint [pk, increment]
+  email varchar(255) [not null, unique]
+  password_hash varchar(255) [not null]
+  name varchar(100) [not null]
+  default_price_area varchar(20) [not null, note: 'Default Norwegian bidding zone, e.g. NO1-NO5']
+  status user_status [not null, default: 'ACTIVE']
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  checks {
+    `default_price_area IN ('NO1', 'NO2', 'NO3', 'NO4', 'NO5')` [name: 'user_default_price_area_valid']
+  }
+}
+
+Table evs {
+  id bigint [pk, increment]
+  user_id bigint [not null, ref: > users.id]
+  name varchar(100) [not null, note: 'User-defined EV name']
+  manufacturer varchar(100)
+  model varchar(100)
+  battery_capacity_kwh decimal(8,2) [not null]
+  max_charging_power_kw decimal(8,2) [not null]
+  status ev_status [not null, default: 'ACTIVE']
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  Indexes {
+    user_id
+  }
+
+  checks {
+    `battery_capacity_kwh > 0` [name: 'ev_battery_capacity_positive']
+    `max_charging_power_kw > 0` [name: 'ev_charging_power_positive']
+  }
+}
+
+Table electricity_prices {
+  id bigint [pk, increment]
+  provider price_provider [not null, default: 'HVA_KOSTER_STROMMEN']
+  price_area varchar(20) [not null, note: 'Norwegian bidding zone, e.g. NO1-NO5']
+  starts_at timestamptz [not null]
+  ends_at timestamptz [not null]
+  price_per_kwh decimal(12,6) [not null]
+  currency varchar(3) [not null, default: 'NOK']
+  fetched_at timestamptz [not null]
+
+  Indexes {
+    (provider, price_area, starts_at) [unique]
+    (price_area, starts_at)
+  }
+
+  checks {
+    `ends_at > starts_at` [name: 'electricity_price_time_range_valid']
+    `price_area IN ('NO1', 'NO2', 'NO3', 'NO4', 'NO5')` [name: 'electricity_price_area_valid']
+  }
+}
+
+Table charging_requests {
+  id bigint [pk, increment]
+  ev_id bigint [not null, ref: > evs.id]
+
+  current_battery_percent decimal(5,2) [not null]
+  target_battery_percent decimal(5,2) [not null]
+  price_area varchar(20) [not null, note: 'Price area snapshot used for this charging request']
+  required_completion_at timestamptz [not null]
+
+  calculated_energy_kwh decimal(8,2)
+  estimated_duration_minutes int
+
+  status charging_request_status [not null, default: 'PENDING']
+  failure_reason varchar(500)
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  Indexes {
+    ev_id
+    (status, required_completion_at)
+  }
+
+  checks {
+    `current_battery_percent >= 0 AND current_battery_percent <= 100` [name: 'charging_request_current_battery_valid']
+    `target_battery_percent > 0 AND target_battery_percent <= 100` [name: 'charging_request_target_battery_valid']
+    `target_battery_percent > current_battery_percent` [name: 'charging_request_battery_range_valid']
+    `price_area IN ('NO1', 'NO2', 'NO3', 'NO4', 'NO5')` [name: 'charging_request_price_area_valid']
+    `calculated_energy_kwh IS NULL OR calculated_energy_kwh >= 0` [name: 'charging_request_energy_non_negative']
+    `estimated_duration_minutes IS NULL OR estimated_duration_minutes > 0` [name: 'charging_request_duration_positive']
+  }
+}
+
+Table charging_schedules {
+  id bigint [pk, increment]
+  charging_request_id bigint [not null, ref: > charging_requests.id]
+
+  scheduled_start_at timestamptz [not null]
+  scheduled_end_at timestamptz [not null]
+  expected_energy_kwh decimal(8,2) [not null]
+  estimated_cost_nok decimal(12,4) [not null]
+
+  status charging_schedule_status [not null, default: 'CREATED']
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  Indexes {
+    charging_request_id [unique]
+    (status, scheduled_start_at)
+  }
+
+  checks {
+    `scheduled_end_at > scheduled_start_at` [name: 'charging_schedule_time_range_valid']
+    `expected_energy_kwh > 0` [name: 'charging_schedule_energy_positive']
+  }
+}
+
+Table charging_schedule_slots {
+  id bigint [pk, increment]
+  charging_schedule_id bigint [not null, ref: > charging_schedules.id]
+  electricity_price_id bigint [not null, ref: > electricity_prices.id]
+
+  slot_start_at timestamptz [not null]
+  slot_end_at timestamptz [not null]
+  planned_energy_kwh decimal(8,2) [not null]
+  expected_cost_nok decimal(12,4) [not null]
+  sequence_no int [not null]
+
+  Indexes {
+    charging_schedule_id
+    (charging_schedule_id, sequence_no) [unique]
+  }
+
+  checks {
+    `slot_end_at > slot_start_at` [name: 'charging_schedule_slot_time_range_valid']
+    `planned_energy_kwh > 0` [name: 'charging_schedule_slot_energy_positive']
+    `sequence_no > 0` [name: 'charging_schedule_slot_sequence_positive']
+  }
+}
+
+Table charging_sessions {
+  id bigint [pk, increment]
+  charging_schedule_id bigint [not null, ref: > charging_schedules.id]
+
+  started_at timestamptz
+  completed_at timestamptz
+  actual_energy_kwh decimal(8,2)
+  actual_cost_nok decimal(12,4)
+
+  baseline_cost_nok decimal(12,4) [note: 'Estimated cost if charging started immediately']
+  optimized_cost_nok decimal(12,4)
+  estimated_savings_nok decimal(12,4)
+
+  status charging_session_status [not null]
+  failure_reason varchar(500)
+
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  Indexes {
+    charging_schedule_id
+    started_at
+  }
+
+  checks {
+    `completed_at IS NULL OR started_at IS NULL OR completed_at >= started_at` [name: 'charging_session_time_range_valid']
+    `actual_energy_kwh IS NULL OR actual_energy_kwh >= 0` [name: 'charging_session_energy_non_negative']
+  }
+}
+
+// -------------------------
+// V1.5 candidate extension
+// -------------------------
+// Add only when vehicle master data or Tibber integration is implemented.
+//
+// Table vehicle_models {
+//   id bigint [pk, increment]
+//   manufacturer varchar(100) [not null]
+//   model varchar(100) [not null]
+//   variant varchar(100)
+//   model_year int
+//   battery_capacity_kwh decimal(8,2) [not null]
+//   max_charging_power_kw decimal(8,2) [not null]
+//   created_at timestamptz [not null]
+//   updated_at timestamptz [not null]
+//
+//   Indexes {
+//     (manufacturer, model, variant, model_year) [unique]
+//   }
+//
+//   checks {
+//     `battery_capacity_kwh > 0` [name: 'vehicle_model_battery_capacity_positive']
+//     `max_charging_power_kw > 0` [name: 'vehicle_model_charging_power_positive']
+//   }
+// }
+//
+// Add a nullable reference to evs:
+// vehicle_model_id bigint [ref: > vehicle_models.id]
+//
+// Keep evs.battery_capacity_kwh and evs.max_charging_power_kw as snapshots
+// used by the optimizer. This supports manual V1 entries and user overrides.
+//
+// Table integration_accounts {
+//   id bigint [pk, increment]
+//   user_id bigint [not null, ref: > users.id]
+//   provider varchar(50) [not null, note: 'e.g. TIBBER']
+//   external_account_id varchar(255)
+//   access_token_encrypted text
+//   refresh_token_encrypted text
+//   token_expires_at timestamptz
+//   created_at timestamptz [not null]
+//   updated_at timestamptz [not null]
+//
+//   Indexes {
+//     (user_id, provider) [unique]
+//   }
+// }
+//
+// Tibber prices may be personalized per account. Do not store personalized
+// prices under the V1 public-price unique key alone. When implemented, either
+// associate them with integration_account_id using a separate table or add an
+// account-scoped key with PostgreSQL partial unique indexes.
+
+// -------------------------
+// V2 refactoring direction
+// -------------------------
+// Manufacturer OAuth connections should be stored separately from evs.
+//
+// Table vehicle_connections {
+//   id bigint [pk, increment]
+//   user_id bigint [not null, ref: > users.id]
+//   ev_id bigint [not null, ref: > evs.id]
+//   provider varchar(50) [not null, note: 'e.g. TESLA, BMW, HYUNDAI']
+//   external_vehicle_id varchar(255) [not null]
+//   access_token_encrypted text
+//   refresh_token_encrypted text
+//   token_expires_at timestamptz
+//   connection_status varchar(50) [not null]
+//   created_at timestamptz [not null]
+//   updated_at timestamptz [not null]
+//
+//   Indexes {
+//     (user_id, provider, external_vehicle_id) [unique]
+//     ev_id
+//   }
+// }
+//
+// When smart-home devices are actually introduced,
+// consider extracting EV-specific ownership into a generalized device model:
+//
+// devices
+//   ├── ev_device_details
+//   ├── washing_machine_details
+//   └── dishwasher_details
+//
+// At that point, charging_requests/schedules can evolve into
+// generalized energy_jobs/energy_schedules.
+// Do not introduce this abstraction in V1 unless requirements demand it.

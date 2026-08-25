@@ -1,0 +1,974 @@
+openapi: 3.0.3
+info:
+  title: WattPilot API
+  version: 1.0.0
+  description: |
+    WattPilot V1 REST API specification.
+    Optimizes EV charging against Norwegian hourly electricity prices.
+    V1 uses manually registered EVs and mock charging; no vehicle-manufacturer control is performed.
+servers:
+  - url: http://localhost:8080/api/v1
+    description: Local development
+tags:
+  - { name: Auth, description: Sign-up, login, token refresh, and current user }
+  - { name: EV, description: Manually registered electric vehicles }
+  - { name: Electricity Price, description: Norwegian hourly electricity prices }
+  - { name: Charging Optimization, description: Charging request optimization and calculated plans }
+  - { name: Scheduler, description: Charging schedule lifecycle }
+  - { name: Mock Charging, description: Simulated execution of scheduled charging }
+  - { name: History, description: Completed and failed charging sessions }
+  - { name: Savings, description: Cost and savings summaries }
+
+paths:
+  /auth/signup:
+    post:
+      tags: [Auth]
+      summary: Create an account
+      operationId: signUp
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SignUpRequest' }
+      responses:
+        '201':
+          description: Account created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Log in
+      operationId: login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: Authenticated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Refresh access token
+      operationId: refreshToken
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RefreshTokenRequest' }
+      responses:
+        '200':
+          description: Token refreshed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Log out and revoke refresh token
+      operationId: logout
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RefreshTokenRequest' }
+      responses:
+        '204': { description: Logged out }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /users/me:
+    get:
+      tags: [Auth]
+      summary: Get current user
+      operationId: getCurrentUser
+      responses:
+        '200':
+          description: Current user
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    patch:
+      tags: [Auth]
+      summary: Update current user preferences
+      operationId: updateCurrentUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateUserRequest' }
+      responses:
+        '200':
+          description: User updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /evs:
+    get:
+      tags: [EV]
+      summary: List my EVs
+      operationId: listEvs
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/EvStatus' }
+      responses:
+        '200':
+          description: EV page
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EvPage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [EV]
+      summary: Register an EV manually
+      operationId: createEv
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateEvRequest' }
+      responses:
+        '201':
+          description: EV registered
+          headers:
+            Location:
+              schema: { type: string, example: /api/v1/evs/550e8400-e29b-41d4-a716-446655440000 }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Ev' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /evs/{evId}:
+    parameters:
+      - $ref: '#/components/parameters/EvId'
+    get:
+      tags: [EV]
+      summary: Get an EV
+      operationId: getEv
+      responses:
+        '200':
+          description: EV
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Ev' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [EV]
+      summary: Update an EV
+      operationId: updateEv
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateEvRequest' }
+      responses:
+        '200':
+          description: EV updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Ev' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [EV]
+      summary: Deactivate an EV
+      description: Soft-deletes the EV by changing its status to INACTIVE.
+      operationId: deleteEv
+      responses:
+        '204': { description: EV deactivated }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /electricity-prices:
+    get:
+      tags: [Electricity Price]
+      summary: Get hourly electricity prices
+      operationId: listElectricityPrices
+      parameters:
+        - $ref: '#/components/parameters/PriceArea'
+        - name: from
+          in: query
+          required: true
+          description: Inclusive start time
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          required: true
+          description: Exclusive end time
+          schema: { type: string, format: date-time }
+      responses:
+        '200':
+          description: Hourly prices ordered by start time
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ElectricityPriceListResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /electricity-prices/latest:
+    get:
+      tags: [Electricity Price]
+      summary: Get the current price
+      operationId: getLatestElectricityPrice
+      parameters:
+        - $ref: '#/components/parameters/PriceArea'
+      responses:
+        '200':
+          description: Current price interval
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ElectricityPrice' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /charging-plans:
+    post:
+      tags: [Charging Optimization]
+      summary: Calculate an optimized charging plan
+      description: Persists a charging request and returns the cheapest feasible hourly slots.
+      operationId: createChargingPlan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateChargingPlanRequest' }
+      responses:
+        '201':
+          description: Plan calculated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChargingPlan' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+    get:
+      tags: [Charging Optimization]
+      summary: List my charging plans
+      operationId: listChargingPlans
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+        - name: evId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/ChargingRequestStatus' }
+      responses:
+        '200':
+          description: Charging plan page
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChargingPlanPage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /charging-plans/{planId}:
+    parameters:
+      - $ref: '#/components/parameters/PlanId'
+    get:
+      tags: [Charging Optimization]
+      summary: Get a charging plan
+      operationId: getChargingPlan
+      responses:
+        '200':
+          description: Charging plan
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChargingPlan' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /charging-schedules:
+    post:
+      tags: [Scheduler]
+      summary: Create a schedule from a charging plan
+      operationId: createChargingSchedule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateScheduleRequest' }
+      responses:
+        '201':
+          description: Schedule created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChargingSchedule' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    get:
+      tags: [Scheduler]
+      summary: List my schedules
+      operationId: listChargingSchedules
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+        - name: evId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/ScheduleStatus' }
+        - name: from
+          in: query
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          schema: { type: string, format: date-time }
+      responses:
+        '200':
+          description: Schedule page
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChargingSchedulePage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /charging-schedules/{scheduleId}:
+    parameters:
+      - $ref: '#/components/parameters/ScheduleId'
+    get:
+      tags: [Scheduler]
+      summary: Get a schedule
+      operationId: getChargingSchedule
+      responses:
+        '200':
+          description: Charging schedule
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChargingSchedule' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Scheduler]
+      summary: Cancel a schedule
+      operationId: cancelChargingSchedule
+      responses:
+        '204': { description: Schedule cancelled }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /mock-charging/sessions:
+    post:
+      tags: [Mock Charging]
+      summary: Start a mock charging session
+      description: Simulates the scheduler trigger. No real EV command is sent.
+      operationId: startMockCharging
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StartMockChargingRequest' }
+      responses:
+        '201':
+          description: Mock session started
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChargingSession' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /mock-charging/sessions/{sessionId}:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    get:
+      tags: [Mock Charging]
+      summary: Get mock charging progress
+      operationId: getMockChargingSession
+      responses:
+        '200':
+          description: Charging session
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChargingSession' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /mock-charging/sessions/{sessionId}/complete:
+    post:
+      tags: [Mock Charging]
+      summary: Complete a mock charging session
+      operationId: completeMockCharging
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CompleteMockChargingRequest' }
+      responses:
+        '200':
+          description: Session completed and history finalized
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChargingSession' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /mock-charging/sessions/{sessionId}/fail:
+    post:
+      tags: [Mock Charging]
+      summary: Fail a mock charging session
+      operationId: failMockCharging
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FailMockChargingRequest' }
+      responses:
+        '200':
+          description: Session failed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChargingSession' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /mock-charging/sessions/{sessionId}/cancel:
+    post:
+      tags: [Mock Charging]
+      summary: Cancel a mock charging session
+      operationId: cancelMockCharging
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: Session cancelled
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChargingSession' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /charging-history:
+    get:
+      tags: [History]
+      summary: List charging history
+      operationId: listChargingHistory
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+        - name: evId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/SessionStatus' }
+        - name: from
+          in: query
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          schema: { type: string, format: date-time }
+      responses:
+        '200':
+          description: History page
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChargingHistoryPage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /charging-history/{sessionId}:
+    get:
+      tags: [History]
+      summary: Get charging history detail
+      operationId: getChargingHistory
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: Charging history detail
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChargingHistoryDetail' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /savings/summary:
+    get:
+      tags: [Savings]
+      summary: Get savings summary
+      operationId: getSavingsSummary
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: evId
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Savings summary
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SavingsSummary' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /savings/daily:
+    get:
+      tags: [Savings]
+      summary: Get daily savings trend
+      operationId: getDailySavings
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: evId
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Daily savings points
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/DailySavings' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+security:
+  - bearerAuth: []
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 0, default: 0 }
+    Size:
+      name: size
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+    PriceArea:
+      name: priceArea
+      in: query
+      required: true
+      schema: { $ref: '#/components/schemas/PriceArea' }
+    EvId:
+      name: evId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    PlanId:
+      name: planId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ScheduleId:
+      name: scheduleId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    SessionId:
+      name: sessionId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+  responses:
+    BadRequest:
+      description: Invalid request syntax or parameters
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Unauthorized:
+      description: Authentication required or token invalid
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    NotFound:
+      description: Resource not found or not owned by current user
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Conflict:
+      description: Request conflicts with current resource state
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    UnprocessableEntity:
+      description: Request is valid but cannot be processed
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+  schemas:
+    PriceArea:
+      type: string
+      enum: [NO1, NO2, NO3, NO4, NO5]
+    UserStatus:
+      type: string
+      enum: [ACTIVE, INACTIVE]
+    EvStatus:
+      type: string
+      enum: [ACTIVE, INACTIVE]
+    ChargingRequestStatus:
+      type: string
+      enum: [PENDING, SCHEDULED, CANCELLED, COMPLETED, FAILED]
+    ScheduleStatus:
+      type: string
+      enum: [CREATED, WAITING, IN_PROGRESS, COMPLETED, CANCELLED, FAILED]
+    SessionStatus:
+      type: string
+      enum: [STARTED, COMPLETED, FAILED, CANCELLED]
+    SignUpRequest:
+      type: object
+      required: [email, password, name, defaultPriceArea]
+      properties:
+        email: { type: string, format: email, maxLength: 255, example: iris@example.com }
+        password: { type: string, format: password, minLength: 8, maxLength: 72, writeOnly: true, example: WattPilot123! }
+        name: { type: string, minLength: 1, maxLength: 100, example: Iris }
+        defaultPriceArea: { $ref: '#/components/schemas/PriceArea' }
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email, example: iris@example.com }
+        password: { type: string, format: password, writeOnly: true, example: WattPilot123! }
+    RefreshTokenRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken: { type: string, minLength: 1, writeOnly: true }
+    TokenResponse:
+      type: object
+      required: [accessToken, refreshToken, tokenType, expiresIn]
+      properties:
+        accessToken: { type: string, readOnly: true }
+        refreshToken: { type: string, readOnly: true }
+        tokenType: { type: string, enum: [Bearer], example: Bearer }
+        expiresIn: { type: integer, format: int64, description: Access-token lifetime in seconds, example: 3600 }
+    AuthResponse:
+      allOf:
+        - $ref: '#/components/schemas/TokenResponse'
+        - type: object
+          required: [user]
+          properties:
+            user: { $ref: '#/components/schemas/User' }
+    User:
+      type: object
+      required: [id, email, name, defaultPriceArea, status, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        name: { type: string }
+        defaultPriceArea: { $ref: '#/components/schemas/PriceArea' }
+        status: { $ref: '#/components/schemas/UserStatus' }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    UpdateUserRequest:
+      type: object
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        defaultPriceArea: { $ref: '#/components/schemas/PriceArea' }
+    CreateEvRequest:
+      type: object
+      required: [name, manufacturer, model, batteryCapacityKwh, maxAcChargingPowerKw, defaultChargerPowerKw]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100, example: My i4 }
+        manufacturer: { type: string, minLength: 1, maxLength: 100, example: BMW }
+        model: { type: string, minLength: 1, maxLength: 100, example: i4 eDrive40 }
+        batteryCapacityKwh: { type: number, format: double, exclusiveMinimum: true, minimum: 0, example: 81.1 }
+        maxAcChargingPowerKw: { type: number, format: double, exclusiveMinimum: true, minimum: 0, maximum: 22, example: 11 }
+        defaultChargerPowerKw: { type: number, format: double, exclusiveMinimum: true, minimum: 0, maximum: 22, example: 7.4 }
+    UpdateEvRequest:
+      type: object
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        manufacturer: { type: string, minLength: 1, maxLength: 100 }
+        model: { type: string, minLength: 1, maxLength: 100 }
+        batteryCapacityKwh: { type: number, format: double, exclusiveMinimum: true, minimum: 0 }
+        maxAcChargingPowerKw: { type: number, format: double, exclusiveMinimum: true, minimum: 0, maximum: 22 }
+        defaultChargerPowerKw: { type: number, format: double, exclusiveMinimum: true, minimum: 0, maximum: 22 }
+        status: { $ref: '#/components/schemas/EvStatus' }
+    Ev:
+      allOf:
+        - $ref: '#/components/schemas/CreateEvRequest'
+        - type: object
+          required: [id, status, createdAt, updatedAt]
+          properties:
+            id: { type: string, format: uuid }
+            status: { $ref: '#/components/schemas/EvStatus' }
+            createdAt: { type: string, format: date-time }
+            updatedAt: { type: string, format: date-time }
+    ElectricityPrice:
+      type: object
+      required: [id, provider, priceArea, startsAt, endsAt, pricePerKwh, currency, fetchedAt]
+      properties:
+        id: { type: string, format: uuid }
+        provider: { type: string, enum: [HVA_KOSTER_STROMMEN] }
+        priceArea: { $ref: '#/components/schemas/PriceArea' }
+        startsAt: { type: string, format: date-time, example: '2026-08-24T01:00:00+02:00' }
+        endsAt: { type: string, format: date-time, example: '2026-08-24T02:00:00+02:00' }
+        pricePerKwh: { type: number, format: double, minimum: 0, example: 0.71 }
+        currency: { type: string, enum: [NOK] }
+        fetchedAt: { type: string, format: date-time }
+    ElectricityPriceListResponse:
+      type: object
+      required: [priceArea, provider, currency, from, to, prices]
+      properties:
+        priceArea: { $ref: '#/components/schemas/PriceArea' }
+        provider: { type: string, enum: [HVA_KOSTER_STROMMEN] }
+        currency: { type: string, enum: [NOK] }
+        from: { type: string, format: date-time }
+        to: { type: string, format: date-time }
+        prices:
+          type: array
+          items: { $ref: '#/components/schemas/ElectricityPrice' }
+    CreateChargingPlanRequest:
+      type: object
+      required: [evId, currentBatteryPercent, targetBatteryPercent, requiredCompletionAt, priceArea]
+      properties:
+        evId: { type: string, format: uuid }
+        currentBatteryPercent: { type: number, format: double, minimum: 0, maximum: 100, example: 25 }
+        targetBatteryPercent: { type: number, format: double, minimum: 0, maximum: 100, example: 80 }
+        requiredCompletionAt: { type: string, format: date-time, example: '2026-08-24T07:00:00+02:00' }
+        earliestStartAt:
+          type: string
+          format: date-time
+          description: Defaults to current time.
+        priceArea: { $ref: '#/components/schemas/PriceArea' }
+    ChargingPlanSlot:
+      type: object
+      required: [startsAt, endsAt, pricePerKwh, plannedEnergyKwh, expectedCostNok]
+      properties:
+        startsAt: { type: string, format: date-time }
+        endsAt: { type: string, format: date-time }
+        pricePerKwh: { type: number, format: double, minimum: 0 }
+        plannedEnergyKwh: { type: number, format: double, minimum: 0 }
+        expectedCostNok: { type: number, format: double, minimum: 0 }
+    EvSnapshot:
+      type: object
+      required: [name, manufacturer, model, batteryCapacityKwh, maxAcChargingPowerKw, defaultChargerPowerKw]
+      properties:
+        name: { type: string }
+        manufacturer: { type: string }
+        model: { type: string }
+        batteryCapacityKwh: { type: number, format: double }
+        maxAcChargingPowerKw: { type: number, format: double }
+        defaultChargerPowerKw: { type: number, format: double }
+    ChargingPlan:
+      type: object
+      required: [id, evId, evSnapshot, status, currentBatteryPercent, targetBatteryPercent, requiredCompletionAt, priceArea, calculatedEnergyKwh, effectiveChargingPowerKw, estimatedDurationMinutes, scheduledStartAt, scheduledEndAt, expectedEnergyKwh, estimatedCostNok, baselineCostNok, expectedSavingsNok, slots, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        evId: { type: string, format: uuid }
+        evSnapshot: { $ref: '#/components/schemas/EvSnapshot' }
+        status: { $ref: '#/components/schemas/ChargingRequestStatus' }
+        currentBatteryPercent: { type: number, format: double }
+        targetBatteryPercent: { type: number, format: double }
+        requiredCompletionAt: { type: string, format: date-time }
+        earliestStartAt: { type: string, format: date-time }
+        priceArea: { $ref: '#/components/schemas/PriceArea' }
+        calculatedEnergyKwh: { type: number, format: double }
+        estimatedDurationMinutes: { type: integer, minimum: 1 }
+        scheduledStartAt: { type: string, format: date-time }
+        scheduledEndAt: { type: string, format: date-time }
+        expectedEnergyKwh: { type: number, format: double }
+        estimatedCostNok: { type: number, format: double }
+        baselineCostNok:
+          type: number
+          format: double
+          description: Cost of charging immediately from earliestStartAt.
+        expectedSavingsNok: { type: number, format: double }
+        slots:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/ChargingPlanSlot' }
+        createdAt: { type: string, format: date-time }
+        effectiveChargingPowerKw: { type: number, format: double, exclusiveMinimum: true, minimum: 0, example: 7.4 }
+    CreateScheduleRequest:
+      type: object
+      required: [planId]
+      properties:
+        planId: { type: string, format: uuid }
+    ChargingSchedule:
+      type: object
+      required: [id, planId, evId, status, scheduledStartAt, scheduledEndAt, expectedEnergyKwh, estimatedCostNok, slots, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        planId: { type: string, format: uuid }
+        evId: { type: string, format: uuid }
+        status: { $ref: '#/components/schemas/ScheduleStatus' }
+        scheduledStartAt: { type: string, format: date-time }
+        scheduledEndAt: { type: string, format: date-time }
+        expectedEnergyKwh: { type: number, format: double }
+        estimatedCostNok: { type: number, format: double }
+        slots:
+          type: array
+          items: { $ref: '#/components/schemas/ChargingPlanSlot' }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    StartMockChargingRequest:
+      type: object
+      required: [scheduleId]
+      properties:
+        scheduleId: { type: string, format: uuid }
+    CompleteMockChargingRequest:
+      type: object
+      properties:
+        actualEnergyKwh:
+          type: number
+          format: double
+          minimum: 0
+          description: Defaults to the schedule's expected energy.
+        actualEndAt:
+          type: string
+          format: date-time
+          description: Defaults to current time.
+    FailMockChargingRequest:
+      type: object
+      required: [failureReason]
+      properties:
+        failureReason: { type: string, minLength: 1, maxLength: 500, example: Simulated charger communication failure }
+    ChargingSession:
+      type: object
+      required: [id, scheduleId, evId, status, startedAt, expectedEnergyKwh, estimatedCostNok]
+      properties:
+        id: { type: string, format: uuid }
+        scheduleId: { type: string, format: uuid }
+        evId: { type: string, format: uuid }
+        status: { $ref: '#/components/schemas/SessionStatus' }
+        startedAt: { type: string, format: date-time }
+        endedAt: { type: string, format: date-time, nullable: true }
+        expectedEnergyKwh: { type: number, format: double }
+        actualEnergyKwh: { type: number, format: double, nullable: true }
+        estimatedCostNok: { type: number, format: double }
+        actualCostNok: { type: number, format: double, nullable: true }
+        baselineCostNok: { type: number, format: double, nullable: true }
+        savingsNok: { type: number, format: double, nullable: true }
+        failureReason: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    ChargingHistoryDetail:
+      allOf:
+        - $ref: '#/components/schemas/ChargingSession'
+        - type: object
+          required: [evSnapshot, priceArea, slots]
+          properties:
+            evSnapshot: { $ref: '#/components/schemas/EvSnapshot' }
+            priceArea: { $ref: '#/components/schemas/PriceArea' }
+            slots:
+              type: array
+              items: { $ref: '#/components/schemas/ChargingPlanSlot' }
+    SavingsSummary:
+      type: object
+      required: [from, to, currency, completedSessionCount, totalEnergyKwh, optimizedCostNok, baselineCostNok, totalSavingsNok, savingsRatePercent]
+      properties:
+        from: { type: string, format: date }
+        to: { type: string, format: date }
+        evId: { type: string, format: uuid, nullable: true }
+        currency: { type: string, enum: [NOK] }
+        completedSessionCount: { type: integer, minimum: 0 }
+        totalEnergyKwh: { type: number, format: double, minimum: 0 }
+        optimizedCostNok: { type: number, format: double, minimum: 0 }
+        baselineCostNok: { type: number, format: double, minimum: 0 }
+        totalSavingsNok: { type: number, format: double }
+        savingsRatePercent: { type: number, format: double }
+    DailySavings:
+      type: object
+      required: [date, currency, sessionCount, energyKwh, optimizedCostNok, baselineCostNok, savingsNok]
+      properties:
+        date: { type: string, format: date }
+        currency: { type: string, enum: [NOK] }
+        sessionCount: { type: integer, minimum: 0 }
+        energyKwh: { type: number, format: double, minimum: 0 }
+        optimizedCostNok: { type: number, format: double, minimum: 0 }
+        baselineCostNok: { type: number, format: double, minimum: 0 }
+        savingsNok: { type: number, format: double }
+    PageMetadata:
+      type: object
+      required: [page, size, totalElements, totalPages, first, last]
+      properties:
+        page: { type: integer, minimum: 0 }
+        size: { type: integer, minimum: 1 }
+        totalElements: { type: integer, format: int64, minimum: 0 }
+        totalPages: { type: integer, minimum: 0 }
+        first: { type: boolean }
+        last: { type: boolean }
+    EvPage:
+      type: object
+      required: [content, page]
+      properties:
+        content: { type: array, items: { $ref: '#/components/schemas/Ev' } }
+        page: { $ref: '#/components/schemas/PageMetadata' }
+    ChargingPlanPage:
+      type: object
+      required: [content, page]
+      properties:
+        content: { type: array, items: { $ref: '#/components/schemas/ChargingPlan' } }
+        page: { $ref: '#/components/schemas/PageMetadata' }
+    ChargingSchedulePage:
+      type: object
+      required: [content, page]
+      properties:
+        content: { type: array, items: { $ref: '#/components/schemas/ChargingSchedule' } }
+        page: { $ref: '#/components/schemas/PageMetadata' }
+    ChargingHistoryPage:
+      type: object
+      required: [content, page]
+      properties:
+        content: { type: array, items: { $ref: '#/components/schemas/ChargingSession' } }
+        page: { $ref: '#/components/schemas/PageMetadata' }
+    FieldError:
+      type: object
+      required: [field, reason]
+      properties:
+        field: { type: string, example: targetBatteryPercent }
+        rejectedValue: { nullable: true, example: 120 }
+        reason: { type: string, example: must be less than or equal to 100 }
+    ErrorResponse:
+      type: object
+      required: [timestamp, status, code, message, path, traceId]
+      properties:
+        timestamp: { type: string, format: date-time }
+        status: { type: integer, example: 400 }
+        code: { type: string, example: VALIDATION_ERROR }
+        message: { type: string, example: Request validation failed. }
+        path: { type: string, example: /api/v1/charging-plans }
+        traceId: { type: string, example: 7b9f52e8a61b4a74 }
+        fieldErrors:
+          type: array
+          items: { $ref: '#/components/schemas/FieldError' }
