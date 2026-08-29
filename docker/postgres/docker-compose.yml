@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: wattpilot-postgres
+
+    environment:
+      POSTGRES_DB: wattpilot
+      POSTGRES_USER: wattpilot
+      POSTGRES_PASSWORD: wattpilot
+
+    ports:
+      - "5432:5432"
+
+    volumes:
+      - wattpilot-postgres-data:/var/lib/postgresql/data
+
+    restart: unless-stopped
+
+volumes:
+  wattpilot-postgres-data:
