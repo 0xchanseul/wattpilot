@@ -1,10 +1,10 @@
 | Feature | V1 | V1.5 | V2 | Description | Notes |
 | --- | --- | --- | --- | --- | --- |
 | Sign-up / Login | ✅ |  |  | Basic authentication |  |
-| EV Registration | ✅ |  |  | Battery capacity, charging power | Need to verify whether integration with vehicle manufacturers is possible (Tesla, BMW, Hyundai, etc.) |
+| EV Registration | ✅ |  |  | Battery capacity, maximum AC charging power, default charger power | Manual input in V1 |
 | Electricity Price Lookup | ✅ |  |  | External API | Hva koster strømmen API |
-| Optimal Charging Time Calculation | ✅ |  |  | Core feature |  |
-| Charging Reservation | ✅ |  |  | Scheduler |  |
+| Optimal Charging Time Calculation | ✅ |  |  | Core feature | Continuous charging window only |
+| Charging Reservation | ✅ |  |  | Scheduler | Created after the user confirms a recommended charging plan |
 | Actual EV Control | ❌ |  |  | Use Mock |  |
 | Mock Charging | ✅ |  |  | Used instead of actual devices |  |
 | Charging History | ✅ |  |  |  |  |
@@ -17,10 +17,12 @@
 | Dishwasher |  |  | ✅ |  |  |
 | Smart Home Integration |  |  | ✅ |  |  |
 
-- For Vehicle Specification Master Data, obtaining comprehensive metadata may be practically difficult.
-- **V1:** Users manually enter battery capacity and actual charging power.
+- **V1 EV input:** Users manually enter battery capacity, maximum AC charging power, and default charger power.
+- **V1 charging optimization:** Only continuous charging windows are supported. The selected price slots must be consecutive.
+- **Charging plan vs. reservation:** A charging plan is the optimizer's recommendation. A charging reservation is created only after the user confirms the plan.
+- **Charging efficiency:** V1 uses a system-level default value of `0.9`; it is not stored per EV.
+- **Vehicle Specification Master Data:** Obtaining comprehensive metadata may be practically difficult.
 - **V1.5:** Manually build presets for only 10–20 representative vehicle models.
 - **Unsupported vehicles:** Continue to use manual input.
 - **Full vehicle data:** Consider paid APIs or commercial data sources later if needed.
 - **Automatic vehicle account integration:** Review Enode, Smartcar, or manufacturer APIs in V2.
-- Consider the approaches above.

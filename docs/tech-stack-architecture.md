@@ -30,7 +30,7 @@ WattPilot V1 will use a **modular monolith** architecture with a separate React 
 
 The backend will follow a **domain-oriented modular monolith** structure rather than a microservices architecture.
 
-```
+```text
 com.wattpilot
 ├─ auth
 ├─ user
@@ -50,7 +50,7 @@ Each domain may contain its own controller, service, repository, domain model, a
 - **Modular Monolith First** — Microservices are intentionally excluded from V1 to avoid unnecessary operational complexity.
 - **Domain-oriented Structure** — Business domains such as EV, Charging, and Electricity are separated clearly.
 - **External API Isolation** — External providers are accessed through dedicated clients or interfaces so implementations can be replaced later.
-- **Database as Source of Truth** — Charging schedules and execution states are persisted in PostgreSQL.
+- **Database as Source of Truth** — Charging plans, schedules, and execution states are persisted in PostgreSQL.
 - **Configuration over Hardcoding** — Environment-specific values and system constants are managed through application configuration.
 - **UTC Storage** — Timestamps are stored in UTC and converted to `Europe/Oslo` when displayed.
 
@@ -58,7 +58,7 @@ Each domain may contain its own controller, service, repository, domain model, a
 
 V1 will use the **Hva koster strømmen API** for hourly electricity prices.
 
-```
+```text
 ElectricityPriceService
         ↓
 ElectricityPriceProvider
@@ -70,7 +70,7 @@ The provider interface should allow future implementations such as Tibber withou
 
 Vehicle control follows the same approach.
 
-```
+```text
 VehicleController
         ↓
 MockVehicleController   // V1
@@ -84,7 +84,7 @@ V1 uses Mock charging only. Real vehicle control is intentionally excluded.
 
 PostgreSQL is the primary relational database. Schema changes are managed using **Flyway migration scripts** rather than manually modifying the database.
 
-```
+```text
 src/main/resources/db/migration/
 ├─ V1__create_users.sql
 ├─ V2__create_evs.sql
@@ -95,6 +95,8 @@ src/main/resources/db/migration/
 Flyway applies unapplied migrations automatically when the application starts and records migration history in the database.
 
 Hibernate schema management should use validation rather than automatic schema updates in production-like environments.
+
+V1 uses `BIGINT` primary keys and foreign keys. API resource identifiers use the same `int64` representation to keep the persistence and API models simple and consistent.
 
 # Scheduling
 
@@ -117,15 +119,53 @@ Main inputs include:
 - Current battery level
 - Target battery level
 - Maximum AC charging power
+- Default charger power
 - Charging efficiency
 - Available charging window
 - Hourly electricity prices
 
+The effective charging power is the lower value of the EV's maximum AC charging power and the configured charger power.
+
+```text
+effectiveChargingPowerKw = min(maxAcChargingPowerKw, defaultChargerPowerKw)
+```
+
 For V1, the default charging efficiency is configured as `0.9` and is not stored per EV in the database.
+
+V1 supports **continuous charging only**. The optimizer selects one contiguous charging window that satisfies the required charging duration and completion deadline.
+
+The selected charging window may internally consist of multiple hourly electricity-price slots, but those slots must be consecutive.
+
+The optimization flow is:
+
+```text
+Charging Requirements
+        ↓
+Calculate Required Energy
+        ↓
+Calculate Effective Charging Power
+        ↓
+Calculate Required Charging Duration
+        ↓
+Evaluate Available Continuous Windows
+        ↓
+Feasible continuous window found?
+        ├─ Yes → Select Lowest-Cost Continuous Window → Persist ChargingPlan (SUCCEEDED) → 201
+        └─ No  → Persist ChargingPlan (FAILED, failure_reason) → 422
+```
+
+A **charging plan** represents the result of a single optimization attempt, not an execution state. `charging_plans.status` is limited to `SUCCEEDED` and `FAILED`:
+
+- **SUCCEEDED** — a feasible continuous window was found. All recommendation fields (`recommendedStartAt`, `recommendedEndAt`, `expectedEnergyKwh`, `estimatedCostNok`, ...) are populated, and the API returns `201 Created` with the plan.
+- **FAILED** — the request was valid but no feasible plan could be produced (e.g. insufficient time before the deadline, the energy requirement cannot be met, or no continuous slot is available). Recommendation fields are `NULL` and `failure_reason` records why. The API returns `422 Unprocessable Entity` instead of a `ChargingPlan`, so the success response schema never needs nullable recommendation fields.
+
+FAILED attempts are kept in `charging_plans` for internal record-keeping only; `GET /charging-plans` and `GET /charging-plans/{planId}` only ever return SUCCEEDED plans. Unexpected system failures (unhandled exceptions, database errors) are handled as ordinary `5xx` responses and are not required to be persisted as a `charging_plans` row.
+
+A **charging schedule** is created only after the user confirms a SUCCEEDED plan. Reservation and execution lifecycle (`CREATED`, `WAITING`, `IN_PROGRESS`, `COMPLETED`, `CANCELLED`, `FAILED`) belongs entirely to `charging_schedules` / `ScheduleStatus`, not to `charging_plans`.
 
 # Deployment Architecture
 
-```
+```text
 User
  ↓
 CloudFront + S3

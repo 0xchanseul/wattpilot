@@ -18,11 +18,8 @@ Enum price_provider {
   TIBBER
 }
 
-Enum charging_request_status {
-  PENDING
-  SCHEDULED
-  CANCELLED
-  COMPLETED
+Enum charging_plan_status {
+  SUCCEEDED
   FAILED
 }
 
@@ -57,14 +54,33 @@ Table users {
   }
 }
 
+Table refresh_tokens {
+  id bigint [pk, increment]
+  user_id bigint [not null, ref: > users.id]
+  token_hash varchar(255) [not null, unique, note: 'Store only a one-way hash of the refresh token']
+  expires_at timestamptz [not null]
+  revoked_at timestamptz
+  created_at timestamptz [not null]
+
+  Indexes {
+    user_id
+    expires_at
+  }
+
+  checks {
+    `expires_at > created_at` [name: 'refresh_token_expiry_valid']
+  }
+}
+
 Table evs {
   id bigint [pk, increment]
   user_id bigint [not null, ref: > users.id]
   name varchar(100) [not null, note: 'User-defined EV name']
-  manufacturer varchar(100)
-  model varchar(100)
+  manufacturer varchar(100) [not null]
+  model varchar(100) [not null]
   battery_capacity_kwh decimal(8,2) [not null]
-  max_charging_power_kw decimal(8,2) [not null]
+  max_ac_charging_power_kw decimal(8,2) [not null]
+  default_charger_power_kw decimal(8,2) [not null]
   status ev_status [not null, default: 'ACTIVE']
   created_at timestamptz [not null]
   updated_at timestamptz [not null]
@@ -75,7 +91,8 @@ Table evs {
 
   checks {
     `battery_capacity_kwh > 0` [name: 'ev_battery_capacity_positive']
-    `max_charging_power_kw > 0` [name: 'ev_charging_power_positive']
+    `max_ac_charging_power_kw > 0 AND max_ac_charging_power_kw <= 22` [name: 'ev_max_ac_charging_power_valid']
+    `default_charger_power_kw > 0 AND default_charger_power_kw <= 22` [name: 'ev_default_charger_power_valid']
   }
 }
 
@@ -100,20 +117,40 @@ Table electricity_prices {
   }
 }
 
-Table charging_requests {
+// charging_plans stores the result of a single optimization attempt (SUCCEEDED or FAILED).
+// It is not an execution-state table: reservation and execution lifecycle
+// (confirm, cancel, execute) is owned entirely by charging_schedules.
+Table charging_plans {
   id bigint [pk, increment]
   ev_id bigint [not null, ref: > evs.id]
 
   current_battery_percent decimal(5,2) [not null]
   target_battery_percent decimal(5,2) [not null]
-  price_area varchar(20) [not null, note: 'Price area snapshot used for this charging request']
+  price_area varchar(20) [not null, note: 'Price area snapshot used for this charging plan']
+  earliest_start_at timestamptz [not null, note: 'Defaults to plan creation time when omitted by the client']
   required_completion_at timestamptz [not null]
 
+  // EV snapshot used by the optimizer so past plans remain reproducible
+  ev_name varchar(100) [not null]
+  ev_manufacturer varchar(100) [not null]
+  ev_model varchar(100) [not null]
+  battery_capacity_kwh decimal(8,2) [not null]
+  max_ac_charging_power_kw decimal(8,2) [not null]
+  default_charger_power_kw decimal(8,2) [not null]
+
   calculated_energy_kwh decimal(8,2)
+  effective_charging_power_kw decimal(8,2)
   estimated_duration_minutes int
 
-  status charging_request_status [not null, default: 'PENDING']
-  failure_reason varchar(500)
+  recommended_start_at timestamptz
+  recommended_end_at timestamptz
+  expected_energy_kwh decimal(8,2)
+  estimated_cost_nok decimal(12,4)
+  baseline_cost_nok decimal(12,4)
+  expected_savings_nok decimal(12,4)
+
+  status charging_plan_status [not null, note: 'Optimization result only. SUCCEEDED requires the recommendation fields above; FAILED means a valid request could not produce a feasible plan.']
+  failure_reason varchar(500) [note: 'Populated when status is FAILED']
   created_at timestamptz [not null]
   updated_at timestamptz [not null]
 
@@ -123,18 +160,50 @@ Table charging_requests {
   }
 
   checks {
-    `current_battery_percent >= 0 AND current_battery_percent <= 100` [name: 'charging_request_current_battery_valid']
-    `target_battery_percent > 0 AND target_battery_percent <= 100` [name: 'charging_request_target_battery_valid']
-    `target_battery_percent > current_battery_percent` [name: 'charging_request_battery_range_valid']
-    `price_area IN ('NO1', 'NO2', 'NO3', 'NO4', 'NO5')` [name: 'charging_request_price_area_valid']
-    `calculated_energy_kwh IS NULL OR calculated_energy_kwh >= 0` [name: 'charging_request_energy_non_negative']
-    `estimated_duration_minutes IS NULL OR estimated_duration_minutes > 0` [name: 'charging_request_duration_positive']
+    `current_battery_percent >= 0 AND current_battery_percent <= 100` [name: 'charging_plan_current_battery_valid']
+    `target_battery_percent > 0 AND target_battery_percent <= 100` [name: 'charging_plan_target_battery_valid']
+    `target_battery_percent > current_battery_percent` [name: 'charging_plan_battery_range_valid']
+    `price_area IN ('NO1', 'NO2', 'NO3', 'NO4', 'NO5')` [name: 'charging_plan_price_area_valid']
+    `required_completion_at > earliest_start_at` [name: 'charging_plan_window_valid']
+    `battery_capacity_kwh > 0` [name: 'charging_plan_battery_capacity_positive']
+    `max_ac_charging_power_kw > 0` [name: 'charging_plan_max_ac_power_positive']
+    `default_charger_power_kw > 0` [name: 'charging_plan_charger_power_positive']
+    `calculated_energy_kwh IS NULL OR calculated_energy_kwh >= 0` [name: 'charging_plan_energy_non_negative']
+    `effective_charging_power_kw IS NULL OR effective_charging_power_kw > 0` [name: 'charging_plan_effective_power_positive']
+    `estimated_duration_minutes IS NULL OR estimated_duration_minutes > 0` [name: 'charging_plan_duration_positive']
+    `recommended_end_at IS NULL OR recommended_start_at IS NULL OR recommended_end_at > recommended_start_at` [name: 'charging_plan_recommended_range_valid']
+    `expected_energy_kwh IS NULL OR expected_energy_kwh >= 0` [name: 'charging_plan_expected_energy_non_negative']
+    `status <> 'SUCCEEDED' OR (recommended_start_at IS NOT NULL AND recommended_end_at IS NOT NULL AND expected_energy_kwh IS NOT NULL AND estimated_cost_nok IS NOT NULL AND baseline_cost_nok IS NOT NULL AND expected_savings_nok IS NOT NULL)` [name: 'charging_plan_succeeded_fields_present']
+    `status <> 'FAILED' OR failure_reason IS NOT NULL` [name: 'charging_plan_failed_reason_present']
+  }
+}
+
+Table charging_plan_slots {
+  id bigint [pk, increment]
+  charging_plan_id bigint [not null, ref: > charging_plans.id]
+  electricity_price_id bigint [not null, ref: > electricity_prices.id]
+
+  slot_start_at timestamptz [not null]
+  slot_end_at timestamptz [not null]
+  planned_energy_kwh decimal(8,2) [not null]
+  expected_cost_nok decimal(12,4) [not null]
+  sequence_no int [not null]
+
+  Indexes {
+    charging_plan_id
+    (charging_plan_id, sequence_no) [unique]
+  }
+
+  checks {
+    `slot_end_at > slot_start_at` [name: 'charging_plan_slot_time_range_valid']
+    `planned_energy_kwh > 0` [name: 'charging_plan_slot_energy_positive']
+    `sequence_no > 0` [name: 'charging_plan_slot_sequence_positive']
   }
 }
 
 Table charging_schedules {
   id bigint [pk, increment]
-  charging_request_id bigint [not null, ref: > charging_requests.id]
+  charging_plan_id bigint [not null, ref: > charging_plans.id]
 
   scheduled_start_at timestamptz [not null]
   scheduled_end_at timestamptz [not null]
@@ -146,7 +215,7 @@ Table charging_schedules {
   updated_at timestamptz [not null]
 
   Indexes {
-    charging_request_id [unique]
+    charging_plan_id [unique]
     (status, scheduled_start_at)
   }
 
@@ -221,7 +290,7 @@ Table charging_sessions {
 //   variant varchar(100)
 //   model_year int
 //   battery_capacity_kwh decimal(8,2) [not null]
-//   max_charging_power_kw decimal(8,2) [not null]
+//   max_ac_charging_power_kw decimal(8,2) [not null]
 //   created_at timestamptz [not null]
 //   updated_at timestamptz [not null]
 //
@@ -231,19 +300,20 @@ Table charging_sessions {
 //
 //   checks {
 //     `battery_capacity_kwh > 0` [name: 'vehicle_model_battery_capacity_positive']
-//     `max_charging_power_kw > 0` [name: 'vehicle_model_charging_power_positive']
+//     `max_ac_charging_power_kw > 0` [name: 'vehicle_model_charging_power_positive']
 //   }
 // }
 //
 // Add a nullable reference to evs:
 // vehicle_model_id bigint [ref: > vehicle_models.id]
 //
-// Keep evs.battery_capacity_kwh and evs.max_charging_power_kw as snapshots
-// used by the optimizer. This supports manual V1 entries and user overrides.
+// Keep evs.battery_capacity_kwh, evs.max_ac_charging_power_kw, and
+// evs.default_charger_power_kw as the V1 inputs/snapshots used by the optimizer.
+// This supports manual V1 entries and later vehicle-model presets.
 //
 // Table integration_accounts {
 //   id bigint [pk, increment]
-//   user_id bigint [not null, ref: > users.id]
+//   user_id bigint [not null]
 //   provider varchar(50) [not null, note: 'e.g. TIBBER']
 //   external_account_id varchar(255)
 //   access_token_encrypted text
@@ -257,6 +327,8 @@ Table charging_sessions {
 //   }
 // }
 //
+// Ref: integration_accounts.user_id > users.id
+//
 // Tibber prices may be personalized per account. Do not store personalized
 // prices under the V1 public-price unique key alone. When implemented, either
 // associate them with integration_account_id using a separate table or add an
@@ -269,8 +341,8 @@ Table charging_sessions {
 //
 // Table vehicle_connections {
 //   id bigint [pk, increment]
-//   user_id bigint [not null, ref: > users.id]
-//   ev_id bigint [not null, ref: > evs.id]
+//   user_id bigint [not null]
+//   ev_id bigint [not null]
 //   provider varchar(50) [not null, note: 'e.g. TESLA, BMW, HYUNDAI']
 //   external_vehicle_id varchar(255) [not null]
 //   access_token_encrypted text
@@ -286,6 +358,9 @@ Table charging_sessions {
 //   }
 // }
 //
+// Ref: vehicle_connections.user_id > users.id
+// Ref: vehicle_connections.ev_id > evs.id
+//
 // When smart-home devices are actually introduced,
 // consider extracting EV-specific ownership into a generalized device model:
 //
@@ -294,6 +369,6 @@ Table charging_sessions {
 //   ├── washing_machine_details
 //   └── dishwasher_details
 //
-// At that point, charging_requests/schedules can evolve into
+// At that point, charging_plans/schedules can evolve into
 // generalized energy_jobs/energy_schedules.
 // Do not introduce this abstraction in V1 unless requirements demand it.

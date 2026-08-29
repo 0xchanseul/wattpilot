@@ -22,7 +22,7 @@ flowchart TD
 
     I --> J[Retrieve Hourly Electricity Prices]
     J --> K[Calculate Required Energy and Charging Duration]
-    K --> L[Find Cheapest Available Charging Hours]
+    K --> L[Find Cheapest Continuous Charging Window]
 
     L --> M[Show Recommended Charging Schedule]
 

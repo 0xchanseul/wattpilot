@@ -5,15 +5,17 @@ info:
   description: |
     WattPilot V1 REST API specification.
     Optimizes EV charging against Norwegian hourly electricity prices.
-    V1 uses manually registered EVs and mock charging; no vehicle-manufacturer control is performed.
+    V1 uses manually registered EVs, continuous charging windows, and mock charging;
+    no vehicle-manufacturer control is performed.
 servers:
   - url: http://localhost:8080/api/v1
     description: Local development
+
 tags:
   - { name: Auth, description: Sign-up, login, token refresh, and current user }
   - { name: EV, description: Manually registered electric vehicles }
   - { name: Electricity Price, description: Norwegian hourly electricity prices }
-  - { name: Charging Optimization, description: Charging request optimization and calculated plans }
+  - { name: Charging Optimization, description: Charging plan optimization and calculated recommendations }
   - { name: Scheduler, description: Charging schedule lifecycle }
   - { name: Mock Charging, description: Simulated execution of scheduled charging }
   - { name: History, description: Completed and failed charging sessions }
@@ -39,6 +41,7 @@ paths:
               schema: { $ref: '#/components/schemas/AuthResponse' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '409': { $ref: '#/components/responses/Conflict' }
+
   /auth/login:
     post:
       tags: [Auth]
@@ -58,6 +61,7 @@ paths:
               schema: { $ref: '#/components/schemas/AuthResponse' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+
   /auth/refresh:
     post:
       tags: [Auth]
@@ -76,6 +80,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/TokenResponse' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+
   /auth/logout:
     post:
       tags: [Auth]
@@ -89,6 +94,7 @@ paths:
       responses:
         '204': { description: Logged out }
         '401': { $ref: '#/components/responses/Unauthorized' }
+
   /users/me:
     get:
       tags: [Auth]
@@ -151,12 +157,13 @@ paths:
           description: EV registered
           headers:
             Location:
-              schema: { type: string, example: /api/v1/evs/550e8400-e29b-41d4-a716-446655440000 }
+              schema: { type: string, example: /api/v1/evs/1 }
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Ev' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+
   /evs/{evId}:
     parameters:
       - $ref: '#/components/parameters/EvId'
@@ -226,6 +233,7 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
+
   /electricity-prices/latest:
     get:
       tags: [Electricity Price]
@@ -246,7 +254,13 @@ paths:
     post:
       tags: [Charging Optimization]
       summary: Calculate an optimized charging plan
-      description: Persists a charging request and returns the cheapest feasible hourly slots.
+      description: |
+        Calculates an optimal charging plan for the given requirements and persists the
+        attempt. On success, the plan is stored as SUCCEEDED and returned with 201.
+        When the request is valid but no feasible continuous charging window exists
+        (e.g. insufficient time before the deadline, energy requirement cannot be met,
+        or no continuous slot is available), the attempt is stored as FAILED and this
+        endpoint returns 422 instead of a ChargingPlan.
       operationId: createChargingPlan
       requestBody:
         required: true
@@ -255,7 +269,7 @@ paths:
             schema: { $ref: '#/components/schemas/CreateChargingPlanRequest' }
       responses:
         '201':
-          description: Plan calculated
+          description: Plan calculated successfully (SUCCEEDED)
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ChargingPlan' }
@@ -267,16 +281,20 @@ paths:
     get:
       tags: [Charging Optimization]
       summary: List my charging plans
+      description: |
+        Only SUCCEEDED plans are returned. FAILED optimization attempts are kept
+        internally for record-keeping but are not exposed through this API, so
+        filtering by status=FAILED always returns an empty page.
       operationId: listChargingPlans
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/Size'
         - name: evId
           in: query
-          schema: { type: string, format: uuid }
+          schema: { type: integer, format: int64, minimum: 1 }
         - name: status
           in: query
-          schema: { $ref: '#/components/schemas/ChargingRequestStatus' }
+          schema: { $ref: '#/components/schemas/ChargingPlanStatus' }
       responses:
         '200':
           description: Charging plan page
@@ -284,12 +302,17 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ChargingPlanPage' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+
   /charging-plans/{planId}:
     parameters:
       - $ref: '#/components/parameters/PlanId'
     get:
       tags: [Charging Optimization]
       summary: Get a charging plan
+      description: |
+        Only SUCCEEDED plans are retrievable. A FAILED optimization attempt's id is
+        never returned to clients (see POST /charging-plans), so it cannot be looked
+        up here; requesting an unknown or FAILED id returns 404.
       operationId: getChargingPlan
       responses:
         '200':
@@ -329,7 +352,7 @@ paths:
         - $ref: '#/components/parameters/Size'
         - name: evId
           in: query
-          schema: { type: string, format: uuid }
+          schema: { type: integer, format: int64, minimum: 1 }
         - name: status
           in: query
           schema: { $ref: '#/components/schemas/ScheduleStatus' }
@@ -346,6 +369,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ChargingSchedulePage' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+
   /charging-schedules/{scheduleId}:
     parameters:
       - $ref: '#/components/parameters/ScheduleId'
@@ -392,6 +416,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+
   /mock-charging/sessions/{sessionId}:
     parameters:
       - $ref: '#/components/parameters/SessionId'
@@ -407,6 +432,7 @@ paths:
               schema: { $ref: '#/components/schemas/ChargingSession' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+
   /mock-charging/sessions/{sessionId}/complete:
     post:
       tags: [Mock Charging]
@@ -428,6 +454,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+
   /mock-charging/sessions/{sessionId}/fail:
     post:
       tags: [Mock Charging]
@@ -449,6 +476,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+
   /mock-charging/sessions/{sessionId}/cancel:
     post:
       tags: [Mock Charging]
@@ -476,7 +504,7 @@ paths:
         - $ref: '#/components/parameters/Size'
         - name: evId
           in: query
-          schema: { type: string, format: uuid }
+          schema: { type: integer, format: int64, minimum: 1 }
         - name: status
           in: query
           schema: { $ref: '#/components/schemas/SessionStatus' }
@@ -494,6 +522,7 @@ paths:
               schema: { $ref: '#/components/schemas/ChargingHistoryPage' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+
   /charging-history/{sessionId}:
     get:
       tags: [History]
@@ -526,7 +555,7 @@ paths:
           schema: { type: string, format: date }
         - name: evId
           in: query
-          schema: { type: string, format: uuid }
+          schema: { type: integer, format: int64, minimum: 1 }
       responses:
         '200':
           description: Savings summary
@@ -535,6 +564,7 @@ paths:
               schema: { $ref: '#/components/schemas/SavingsSummary' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+
   /savings/daily:
     get:
       tags: [Savings]
@@ -551,7 +581,7 @@ paths:
           schema: { type: string, format: date }
         - name: evId
           in: query
-          schema: { type: string, format: uuid }
+          schema: { type: integer, format: int64, minimum: 1 }
       responses:
         '200':
           description: Daily savings points
@@ -572,6 +602,7 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+
   parameters:
     Page:
       name: page
@@ -590,22 +621,23 @@ components:
       name: evId
       in: path
       required: true
-      schema: { type: string, format: uuid }
+      schema: { type: integer, format: int64, minimum: 1 }
     PlanId:
       name: planId
       in: path
       required: true
-      schema: { type: string, format: uuid }
+      schema: { type: integer, format: int64, minimum: 1 }
     ScheduleId:
       name: scheduleId
       in: path
       required: true
-      schema: { type: string, format: uuid }
+      schema: { type: integer, format: int64, minimum: 1 }
     SessionId:
       name: sessionId
       in: path
       required: true
-      schema: { type: string, format: uuid }
+      schema: { type: integer, format: int64, minimum: 1 }
+
   responses:
     BadRequest:
       description: Invalid request syntax or parameters
@@ -632,25 +664,36 @@ components:
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/ErrorResponse' }
+
   schemas:
     PriceArea:
       type: string
       enum: [NO1, NO2, NO3, NO4, NO5]
+
     UserStatus:
       type: string
       enum: [ACTIVE, INACTIVE]
+
     EvStatus:
       type: string
       enum: [ACTIVE, INACTIVE]
-    ChargingRequestStatus:
+
+    ChargingPlanStatus:
       type: string
-      enum: [PENDING, SCHEDULED, CANCELLED, COMPLETED, FAILED]
+      description: |
+        Result of a single optimization attempt. This is not a reservation or
+        execution state — that lifecycle is tracked separately by ScheduleStatus
+        on ChargingSchedule.
+      enum: [SUCCEEDED, FAILED]
+
     ScheduleStatus:
       type: string
       enum: [CREATED, WAITING, IN_PROGRESS, COMPLETED, CANCELLED, FAILED]
+
     SessionStatus:
       type: string
       enum: [STARTED, COMPLETED, FAILED, CANCELLED]
+
     SignUpRequest:
       type: object
       required: [email, password, name, defaultPriceArea]
@@ -659,17 +702,20 @@ components:
         password: { type: string, format: password, minLength: 8, maxLength: 72, writeOnly: true, example: WattPilot123! }
         name: { type: string, minLength: 1, maxLength: 100, example: Iris }
         defaultPriceArea: { $ref: '#/components/schemas/PriceArea' }
+
     LoginRequest:
       type: object
       required: [email, password]
       properties:
         email: { type: string, format: email, example: iris@example.com }
         password: { type: string, format: password, writeOnly: true, example: WattPilot123! }
+
     RefreshTokenRequest:
       type: object
       required: [refreshToken]
       properties:
         refreshToken: { type: string, minLength: 1, writeOnly: true }
+
     TokenResponse:
       type: object
       required: [accessToken, refreshToken, tokenType, expiresIn]
@@ -678,6 +724,7 @@ components:
         refreshToken: { type: string, readOnly: true }
         tokenType: { type: string, enum: [Bearer], example: Bearer }
         expiresIn: { type: integer, format: int64, description: Access-token lifetime in seconds, example: 3600 }
+
     AuthResponse:
       allOf:
         - $ref: '#/components/schemas/TokenResponse'
@@ -685,23 +732,26 @@ components:
           required: [user]
           properties:
             user: { $ref: '#/components/schemas/User' }
+
     User:
       type: object
       required: [id, email, name, defaultPriceArea, status, createdAt, updatedAt]
       properties:
-        id: { type: string, format: uuid }
+        id: { type: integer, format: int64, minimum: 1, example: 1 }
         email: { type: string, format: email }
         name: { type: string }
         defaultPriceArea: { $ref: '#/components/schemas/PriceArea' }
         status: { $ref: '#/components/schemas/UserStatus' }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
+
     UpdateUserRequest:
       type: object
       minProperties: 1
       properties:
         name: { type: string, minLength: 1, maxLength: 100 }
         defaultPriceArea: { $ref: '#/components/schemas/PriceArea' }
+
     CreateEvRequest:
       type: object
       required: [name, manufacturer, model, batteryCapacityKwh, maxAcChargingPowerKw, defaultChargerPowerKw]
@@ -712,6 +762,7 @@ components:
         batteryCapacityKwh: { type: number, format: double, exclusiveMinimum: true, minimum: 0, example: 81.1 }
         maxAcChargingPowerKw: { type: number, format: double, exclusiveMinimum: true, minimum: 0, maximum: 22, example: 11 }
         defaultChargerPowerKw: { type: number, format: double, exclusiveMinimum: true, minimum: 0, maximum: 22, example: 7.4 }
+
     UpdateEvRequest:
       type: object
       minProperties: 1
@@ -723,28 +774,31 @@ components:
         maxAcChargingPowerKw: { type: number, format: double, exclusiveMinimum: true, minimum: 0, maximum: 22 }
         defaultChargerPowerKw: { type: number, format: double, exclusiveMinimum: true, minimum: 0, maximum: 22 }
         status: { $ref: '#/components/schemas/EvStatus' }
+
     Ev:
       allOf:
         - $ref: '#/components/schemas/CreateEvRequest'
         - type: object
           required: [id, status, createdAt, updatedAt]
           properties:
-            id: { type: string, format: uuid }
+            id: { type: integer, format: int64, minimum: 1, example: 1 }
             status: { $ref: '#/components/schemas/EvStatus' }
             createdAt: { type: string, format: date-time }
             updatedAt: { type: string, format: date-time }
+
     ElectricityPrice:
       type: object
       required: [id, provider, priceArea, startsAt, endsAt, pricePerKwh, currency, fetchedAt]
       properties:
-        id: { type: string, format: uuid }
+        id: { type: integer, format: int64, minimum: 1, example: 1 }
         provider: { type: string, enum: [HVA_KOSTER_STROMMEN] }
         priceArea: { $ref: '#/components/schemas/PriceArea' }
         startsAt: { type: string, format: date-time, example: '2026-08-24T01:00:00+02:00' }
         endsAt: { type: string, format: date-time, example: '2026-08-24T02:00:00+02:00' }
-        pricePerKwh: { type: number, format: double, minimum: 0, example: 0.71 }
+        pricePerKwh: { type: number, format: double, example: 0.71 }
         currency: { type: string, enum: [NOK] }
         fetchedAt: { type: string, format: date-time }
+
     ElectricityPriceListResponse:
       type: object
       required: [priceArea, provider, currency, from, to, prices]
@@ -757,28 +811,31 @@ components:
         prices:
           type: array
           items: { $ref: '#/components/schemas/ElectricityPrice' }
+
     CreateChargingPlanRequest:
       type: object
       required: [evId, currentBatteryPercent, targetBatteryPercent, requiredCompletionAt, priceArea]
       properties:
-        evId: { type: string, format: uuid }
+        evId: { type: integer, format: int64, minimum: 1, example: 1 }
         currentBatteryPercent: { type: number, format: double, minimum: 0, maximum: 100, example: 25 }
-        targetBatteryPercent: { type: number, format: double, minimum: 0, maximum: 100, example: 80 }
+        targetBatteryPercent: { type: number, format: double, exclusiveMinimum: true, minimum: 0, maximum: 100, example: 80 }
         requiredCompletionAt: { type: string, format: date-time, example: '2026-08-24T07:00:00+02:00' }
         earliestStartAt:
           type: string
           format: date-time
           description: Defaults to current time.
         priceArea: { $ref: '#/components/schemas/PriceArea' }
+
     ChargingPlanSlot:
       type: object
       required: [startsAt, endsAt, pricePerKwh, plannedEnergyKwh, expectedCostNok]
       properties:
         startsAt: { type: string, format: date-time }
         endsAt: { type: string, format: date-time }
-        pricePerKwh: { type: number, format: double, minimum: 0 }
-        plannedEnergyKwh: { type: number, format: double, minimum: 0 }
-        expectedCostNok: { type: number, format: double, minimum: 0 }
+        pricePerKwh: { type: number, format: double }
+        plannedEnergyKwh: { type: number, format: double, exclusiveMinimum: true, minimum: 0 }
+        expectedCostNok: { type: number, format: double }
+
     EvSnapshot:
       type: object
       required: [name, manufacturer, model, batteryCapacityKwh, maxAcChargingPowerKw, defaultChargerPowerKw]
@@ -789,23 +846,45 @@ components:
         batteryCapacityKwh: { type: number, format: double }
         maxAcChargingPowerKw: { type: number, format: double }
         defaultChargerPowerKw: { type: number, format: double }
+
     ChargingPlan:
       type: object
-      required: [id, evId, evSnapshot, status, currentBatteryPercent, targetBatteryPercent, requiredCompletionAt, priceArea, calculatedEnergyKwh, effectiveChargingPowerKw, estimatedDurationMinutes, scheduledStartAt, scheduledEndAt, expectedEnergyKwh, estimatedCostNok, baselineCostNok, expectedSavingsNok, slots, createdAt]
+      required:
+        - id
+        - evId
+        - evSnapshot
+        - status
+        - currentBatteryPercent
+        - targetBatteryPercent
+        - requiredCompletionAt
+        - earliestStartAt
+        - priceArea
+        - calculatedEnergyKwh
+        - effectiveChargingPowerKw
+        - estimatedDurationMinutes
+        - recommendedStartAt
+        - recommendedEndAt
+        - expectedEnergyKwh
+        - estimatedCostNok
+        - baselineCostNok
+        - expectedSavingsNok
+        - slots
+        - createdAt
       properties:
-        id: { type: string, format: uuid }
-        evId: { type: string, format: uuid }
+        id: { type: integer, format: int64, minimum: 1, example: 1 }
+        evId: { type: integer, format: int64, minimum: 1, example: 1 }
         evSnapshot: { $ref: '#/components/schemas/EvSnapshot' }
-        status: { $ref: '#/components/schemas/ChargingRequestStatus' }
+        status: { $ref: '#/components/schemas/ChargingPlanStatus' }
         currentBatteryPercent: { type: number, format: double }
         targetBatteryPercent: { type: number, format: double }
         requiredCompletionAt: { type: string, format: date-time }
         earliestStartAt: { type: string, format: date-time }
         priceArea: { $ref: '#/components/schemas/PriceArea' }
         calculatedEnergyKwh: { type: number, format: double }
+        effectiveChargingPowerKw: { type: number, format: double, exclusiveMinimum: true, minimum: 0, example: 7.4 }
         estimatedDurationMinutes: { type: integer, minimum: 1 }
-        scheduledStartAt: { type: string, format: date-time }
-        scheduledEndAt: { type: string, format: date-time }
+        recommendedStartAt: { type: string, format: date-time }
+        recommendedEndAt: { type: string, format: date-time }
         expectedEnergyKwh: { type: number, format: double }
         estimatedCostNok: { type: number, format: double }
         baselineCostNok:
@@ -816,21 +895,23 @@ components:
         slots:
           type: array
           minItems: 1
+          description: Consecutive price slots that make up the selected continuous charging window.
           items: { $ref: '#/components/schemas/ChargingPlanSlot' }
         createdAt: { type: string, format: date-time }
-        effectiveChargingPowerKw: { type: number, format: double, exclusiveMinimum: true, minimum: 0, example: 7.4 }
+
     CreateScheduleRequest:
       type: object
       required: [planId]
       properties:
-        planId: { type: string, format: uuid }
+        planId: { type: integer, format: int64, minimum: 1, example: 1 }
+
     ChargingSchedule:
       type: object
       required: [id, planId, evId, status, scheduledStartAt, scheduledEndAt, expectedEnergyKwh, estimatedCostNok, slots, createdAt, updatedAt]
       properties:
-        id: { type: string, format: uuid }
-        planId: { type: string, format: uuid }
-        evId: { type: string, format: uuid }
+        id: { type: integer, format: int64, minimum: 1, example: 1 }
+        planId: { type: integer, format: int64, minimum: 1, example: 1 }
+        evId: { type: integer, format: int64, minimum: 1, example: 1 }
         status: { $ref: '#/components/schemas/ScheduleStatus' }
         scheduledStartAt: { type: string, format: date-time }
         scheduledEndAt: { type: string, format: date-time }
@@ -841,11 +922,13 @@ components:
           items: { $ref: '#/components/schemas/ChargingPlanSlot' }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
+
     StartMockChargingRequest:
       type: object
       required: [scheduleId]
       properties:
-        scheduleId: { type: string, format: uuid }
+        scheduleId: { type: integer, format: int64, minimum: 1, example: 1 }
+
     CompleteMockChargingRequest:
       type: object
       properties:
@@ -858,18 +941,20 @@ components:
           type: string
           format: date-time
           description: Defaults to current time.
+
     FailMockChargingRequest:
       type: object
       required: [failureReason]
       properties:
         failureReason: { type: string, minLength: 1, maxLength: 500, example: Simulated charger communication failure }
+
     ChargingSession:
       type: object
       required: [id, scheduleId, evId, status, startedAt, expectedEnergyKwh, estimatedCostNok]
       properties:
-        id: { type: string, format: uuid }
-        scheduleId: { type: string, format: uuid }
-        evId: { type: string, format: uuid }
+        id: { type: integer, format: int64, minimum: 1, example: 1 }
+        scheduleId: { type: integer, format: int64, minimum: 1, example: 1 }
+        evId: { type: integer, format: int64, minimum: 1, example: 1 }
         status: { $ref: '#/components/schemas/SessionStatus' }
         startedAt: { type: string, format: date-time }
         endedAt: { type: string, format: date-time, nullable: true }
@@ -882,6 +967,7 @@ components:
         failureReason: { type: string, nullable: true }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
+
     ChargingHistoryDetail:
       allOf:
         - $ref: '#/components/schemas/ChargingSession'
@@ -893,13 +979,14 @@ components:
             slots:
               type: array
               items: { $ref: '#/components/schemas/ChargingPlanSlot' }
+
     SavingsSummary:
       type: object
       required: [from, to, currency, completedSessionCount, totalEnergyKwh, optimizedCostNok, baselineCostNok, totalSavingsNok, savingsRatePercent]
       properties:
         from: { type: string, format: date }
         to: { type: string, format: date }
-        evId: { type: string, format: uuid, nullable: true }
+        evId: { type: integer, format: int64, minimum: 1, nullable: true }
         currency: { type: string, enum: [NOK] }
         completedSessionCount: { type: integer, minimum: 0 }
         totalEnergyKwh: { type: number, format: double, minimum: 0 }
@@ -907,6 +994,7 @@ components:
         baselineCostNok: { type: number, format: double, minimum: 0 }
         totalSavingsNok: { type: number, format: double }
         savingsRatePercent: { type: number, format: double }
+
     DailySavings:
       type: object
       required: [date, currency, sessionCount, energyKwh, optimizedCostNok, baselineCostNok, savingsNok]
@@ -918,6 +1006,7 @@ components:
         optimizedCostNok: { type: number, format: double, minimum: 0 }
         baselineCostNok: { type: number, format: double, minimum: 0 }
         savingsNok: { type: number, format: double }
+
     PageMetadata:
       type: object
       required: [page, size, totalElements, totalPages, first, last]
@@ -928,30 +1017,35 @@ components:
         totalPages: { type: integer, minimum: 0 }
         first: { type: boolean }
         last: { type: boolean }
+
     EvPage:
       type: object
       required: [content, page]
       properties:
         content: { type: array, items: { $ref: '#/components/schemas/Ev' } }
         page: { $ref: '#/components/schemas/PageMetadata' }
+
     ChargingPlanPage:
       type: object
       required: [content, page]
       properties:
         content: { type: array, items: { $ref: '#/components/schemas/ChargingPlan' } }
         page: { $ref: '#/components/schemas/PageMetadata' }
+
     ChargingSchedulePage:
       type: object
       required: [content, page]
       properties:
         content: { type: array, items: { $ref: '#/components/schemas/ChargingSchedule' } }
         page: { $ref: '#/components/schemas/PageMetadata' }
+
     ChargingHistoryPage:
       type: object
       required: [content, page]
       properties:
         content: { type: array, items: { $ref: '#/components/schemas/ChargingSession' } }
         page: { $ref: '#/components/schemas/PageMetadata' }
+
     FieldError:
       type: object
       required: [field, reason]
@@ -959,6 +1053,7 @@ components:
         field: { type: string, example: targetBatteryPercent }
         rejectedValue: { nullable: true, example: 120 }
         reason: { type: string, example: must be less than or equal to 100 }
+
     ErrorResponse:
       type: object
       required: [timestamp, status, code, message, path, traceId]
