@@ -430,6 +430,16 @@ docs: update API specification
 chore: configure local PostgreSQL environment
 ```
 
+### Commit Message Format
+
+* Format: `type: subject`
+* Allowed types: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`. Use the closest match; do not invent new types without discussing it first.
+* Choose the type based on what actually changed in that commit, not the broader task it belongs to (e.g. a docs-only change is `docs:` even if it supports an in-progress feature).
+* Subject: imperative mood (e.g. "add", "fix", "simplify", not "added" or "adds"), lowercase start, no trailing period, ideally under ~72 characters.
+* When one commit bundles multiple related changes that the subject line cannot fully capture, add a body as `-`-prefixed bullet points, one change per line. Skip the body when the subject alone already says everything.
+* If unrelated changes end up staged together (e.g. project scaffolding and documentation updates), prefer splitting them into separate commits with their own type/subject rather than writing one combined commit.
+* Do not include tool-generated trailers (e.g. `Co-Authored-By`, session links) in manually authored commits.
+
 Do not create commits automatically unless the user explicitly requests it.
 
 The user is responsible for reviewing the changes and performing the final commit.
