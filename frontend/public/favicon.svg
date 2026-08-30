@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="WattPilot">
+  <defs>
+    <linearGradient id="wp-aurora" x1="4" y1="3" x2="28" y2="29" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3FD0E0"/>
+      <stop offset="1" stop-color="#35E08D"/>
+    </linearGradient>
+  </defs>
+  <path d="M26.24 8A13 13 0 0 1 14.19 28.87" fill="none" stroke="url(#wp-aurora)" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M5.76 24A13 13 0 0 1 17.81 3.13" fill="none" stroke="url(#wp-aurora)" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M20 2.6 9.5 17.8h5.9L12 29.4 22.5 14.2h-5.9z" fill="url(#wp-aurora)"/>
+</svg>
