@@ -1,8 +1,20 @@
+# Default local HTTP port. 8080 is often taken by other local services
+# (e.g. an Oracle XE XML DB listener), so the local profile uses 8081.
+server:
+  port: ${SERVER_PORT:8081}
+
 spring:
+  # Load shared local secrets from the repository-root .env file. The path is
+  # resolved against the process working directory, which is the backend module
+  # root when running via Gradle bootRun or the IDE. Optional so the app can also
+  # start from plain environment variables (e.g. CI, container runs).
+  config:
+    import: optional:file:../../.env[.properties]
+
   datasource:
-    url: ${DB_URL:jdbc:postgresql://localhost:5432/wattpilot}
-    username: ${DB_USERNAME:wattpilot}
-    password: ${DB_PASSWORD}
+    url: jdbc:postgresql://localhost:${POSTGRES_PORT:5432}/${POSTGRES_DB:wattpilot}
+    username: ${POSTGRES_USER:wattpilot}
+    password: ${POSTGRES_PASSWORD}
 
   jpa:
     hibernate:

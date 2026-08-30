@@ -215,7 +215,20 @@ Sensitive values must not be stored in the Git repository, including:
 - External API tokens
 - AWS credentials
 
-Local development will use environment variables or `.env` files. Production secrets will be provided through AWS Secrets Manager or ECS-managed environment secrets.
+Local development uses a single git-ignored `.env` file in the repository root, shared by both the local PostgreSQL container and the backend:
+
+```
+POSTGRES_DB
+POSTGRES_USER
+POSTGRES_PASSWORD
+POSTGRES_PORT
+```
+
+- Only `.env.example` (placeholder values) is committed. Each developer copies it to `.env`.
+- PostgreSQL container: `docker compose --env-file .env -f docker/postgres/docker-compose.yml up -d`
+- Backend: `application-local.yml` imports the file via `spring.config.import: optional:file:../../.env[.properties]` and maps the `POSTGRES_*` values onto the datasource. The import is optional, so plain environment variables also work.
+
+Production secrets will be provided through AWS Secrets Manager or ECS-managed environment secrets.
 
 # Monitoring & Logging
 
