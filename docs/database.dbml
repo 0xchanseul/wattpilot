@@ -19,7 +19,10 @@ Enum price_provider {
 }
 
 Enum charging_plan_status {
-  SUCCEEDED
+  PENDING
+  SCHEDULED
+  CANCELLED
+  COMPLETED
   FAILED
 }
 
@@ -117,9 +120,6 @@ Table electricity_prices {
   }
 }
 
-// charging_plans stores the result of a single optimization attempt (SUCCEEDED or FAILED).
-// It is not an execution-state table: reservation and execution lifecycle
-// (confirm, cancel, execute) is owned entirely by charging_schedules.
 Table charging_plans {
   id bigint [pk, increment]
   ev_id bigint [not null, ref: > evs.id]
@@ -149,8 +149,8 @@ Table charging_plans {
   baseline_cost_nok decimal(12,4)
   expected_savings_nok decimal(12,4)
 
-  status charging_plan_status [not null, note: 'Optimization result only. SUCCEEDED requires the recommendation fields above; FAILED means a valid request could not produce a feasible plan.']
-  failure_reason varchar(500) [note: 'Populated when status is FAILED']
+  status charging_plan_status [not null, default: 'PENDING']
+  failure_reason varchar(500)
   created_at timestamptz [not null]
   updated_at timestamptz [not null]
 
@@ -173,8 +173,6 @@ Table charging_plans {
     `estimated_duration_minutes IS NULL OR estimated_duration_minutes > 0` [name: 'charging_plan_duration_positive']
     `recommended_end_at IS NULL OR recommended_start_at IS NULL OR recommended_end_at > recommended_start_at` [name: 'charging_plan_recommended_range_valid']
     `expected_energy_kwh IS NULL OR expected_energy_kwh >= 0` [name: 'charging_plan_expected_energy_non_negative']
-    `status <> 'SUCCEEDED' OR (recommended_start_at IS NOT NULL AND recommended_end_at IS NOT NULL AND expected_energy_kwh IS NOT NULL AND estimated_cost_nok IS NOT NULL AND baseline_cost_nok IS NOT NULL AND expected_savings_nok IS NOT NULL)` [name: 'charging_plan_succeeded_fields_present']
-    `status <> 'FAILED' OR failure_reason IS NOT NULL` [name: 'charging_plan_failed_reason_present']
   }
 }
 
