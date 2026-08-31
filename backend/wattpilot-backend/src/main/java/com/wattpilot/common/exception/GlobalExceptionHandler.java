@@ -10,6 +10,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -18,6 +19,8 @@ import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -32,6 +35,14 @@ import java.util.UUID;
 public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
+    /**
+     * Field names whose rejected value must never be echoed back. A validation failure on a
+     * password or a token would otherwise return the submitted secret in the error response,
+     * where it can end up in browser consoles, proxy logs and error trackers.
+     */
+    private static final Set<String> SENSITIVE_FIELD_NAMES = Set.of("password", "currentpassword",
+            "newpassword", "passwordconfirmation", "token", "accesstoken", "refreshtoken", "secret");
 
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ErrorResponse> handleBusinessException(BusinessException ex, HttpServletRequest request) {
@@ -63,7 +74,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                                                                   HttpStatusCode status,
                                                                   WebRequest request) {
         List<FieldErrorDetail> fieldErrors = ex.getBindingResult().getFieldErrors().stream()
-                .map(error -> new FieldErrorDetail(error.getField(), error.getRejectedValue(), error.getDefaultMessage()))
+                .map(error -> new FieldErrorDetail(error.getField(), rejectedValueOf(error), error.getDefaultMessage()))
                 .toList();
         ErrorResponse body = ErrorResponse.of(
                 HttpStatus.BAD_REQUEST.value(),
@@ -109,6 +120,17 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         writableHeaders.putAll(headers);
         writableHeaders.setContentType(MediaType.APPLICATION_PROBLEM_JSON);
         return ResponseEntity.status(status).headers(writableHeaders).body(body);
+    }
+
+    private static Object rejectedValueOf(FieldError error) {
+        String simpleFieldName = error.getField();
+        int lastDot = simpleFieldName.lastIndexOf('.');
+        if (lastDot >= 0) {
+            simpleFieldName = simpleFieldName.substring(lastDot + 1);
+        }
+        return SENSITIVE_FIELD_NAMES.contains(simpleFieldName.toLowerCase(Locale.ROOT))
+                ? null
+                : error.getRejectedValue();
     }
 
     private static String path(WebRequest request) {

@@ -8,7 +8,7 @@ info:
     V1 uses manually registered EVs, continuous charging windows, and mock charging;
     no vehicle-manufacturer control is performed.
 servers:
-  - url: http://localhost:8080/api/v1
+  - url: http://localhost:8081/api/v1
     description: Local development
 
 tags:
@@ -106,23 +106,6 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/User' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-    patch:
-      tags: [Auth]
-      summary: Update current user preferences
-      operationId: updateCurrentUser
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/UpdateUserRequest' }
-      responses:
-        '200':
-          description: User updated
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/User' }
-        '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
   /evs:
@@ -744,13 +727,6 @@ components:
         status: { $ref: '#/components/schemas/UserStatus' }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
-
-    UpdateUserRequest:
-      type: object
-      minProperties: 1
-      properties:
-        name: { type: string, minLength: 1, maxLength: 100 }
-        defaultPriceArea: { $ref: '#/components/schemas/PriceArea' }
 
     CreateEvRequest:
       type: object

@@ -13,7 +13,17 @@ public enum ErrorCode {
 
     VALIDATION_ERROR(HttpStatus.BAD_REQUEST, "Request validation failed."),
     BAD_REQUEST(HttpStatus.BAD_REQUEST, "The request is malformed or invalid."),
-    INTERNAL_SERVER_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "An unexpected error occurred.");
+    INTERNAL_SERVER_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "An unexpected error occurred."),
+
+    AUTHENTICATION_REQUIRED(HttpStatus.UNAUTHORIZED, "Authentication is required to access this resource."),
+    ACCESS_DENIED(HttpStatus.FORBIDDEN, "Access to this resource is denied."),
+    // Deliberately identical for an unknown email, a wrong password and a deactivated
+    // account so the response cannot be used to probe which emails are registered.
+    INVALID_CREDENTIALS(HttpStatus.UNAUTHORIZED, "Email or password is incorrect."),
+    INVALID_TOKEN(HttpStatus.UNAUTHORIZED, "The token is invalid."),
+    TOKEN_EXPIRED(HttpStatus.UNAUTHORIZED, "The token has expired."),
+    EMAIL_ALREADY_EXISTS(HttpStatus.CONFLICT, "This email is already registered."),
+    USER_NOT_FOUND(HttpStatus.NOT_FOUND, "User not found.");
 
     private final HttpStatus status;
     private final String defaultMessage;
