@@ -21,3 +21,13 @@ wattpilot:
       issuer: wattpilot
       access-token-ttl: 1h
       refresh-token-ttl: 14d
+
+    refresh-cookie:
+      # The refresh token is delivered as an HttpOnly cookie whose lifetime tracks
+      # jwt.refresh-token-ttl. Secure stays on by default (browsers accept it over
+      # http://localhost); set it to false only when the API is served over plain HTTP on a
+      # non-localhost host. Use same-site=None (with a real HTTPS origin) only when the frontend
+      # and API are on unrelated sites.
+      secure: ${REFRESH_COOKIE_SECURE:true}
+      same-site: ${REFRESH_COOKIE_SAME_SITE:Lax}
+      domain: ${REFRESH_COOKIE_DOMAIN:}

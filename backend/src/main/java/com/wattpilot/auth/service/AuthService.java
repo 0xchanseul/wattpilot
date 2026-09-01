@@ -1,9 +1,9 @@
 package com.wattpilot.auth.service;
 
+import com.wattpilot.auth.dto.AccessTokenResponse;
 import com.wattpilot.auth.dto.AuthResponse;
 import com.wattpilot.auth.dto.LoginRequest;
 import com.wattpilot.auth.dto.SignUpRequest;
-import com.wattpilot.auth.dto.TokenResponse;
 import com.wattpilot.auth.entity.RefreshToken;
 import com.wattpilot.auth.repository.RefreshTokenRepository;
 import com.wattpilot.common.exception.BusinessException;
@@ -36,6 +36,9 @@ import java.util.UUID;
  * <p>Access tokens are self-contained and never stored, so they cannot be revoked before they
  * expire. Refresh tokens are the opposite: opaque, stored as a hash, and rotated on every use, so
  * a leaked refresh token is only usable until its owner next refreshes.
+ *
+ * <p>This service produces the raw refresh token but does not decide how it reaches the client:
+ * {@link com.wattpilot.auth.controller.AuthController} places it in an {@code HttpOnly} cookie.
  */
 @Service
 @Transactional(readOnly = true)
@@ -69,15 +72,33 @@ public class AuthService {
         this.unusablePasswordHash = passwordEncoder.encode(UUID.randomUUID().toString());
     }
 
-    @Transactional
-    public AuthResponse signUp(SignUpRequest request) {
-        User user = userService.register(
-                request.email(), request.password(), request.name(), request.defaultPriceArea());
-        return AuthResponse.of(issueTokens(user), UserResponse.from(user));
+    /**
+     * A successful sign-up or login: the response body plus the raw refresh token and how long its
+     * cookie should live.
+     */
+    public record AuthResult(AuthResponse body, String refreshToken, Duration refreshTokenValidity) {
+    }
+
+    /**
+     * A successful token refresh: a new access token for the body plus the rotated refresh token
+     * and its cookie lifetime.
+     */
+    public record RefreshResult(AccessTokenResponse body, String refreshToken, Duration refreshTokenValidity) {
     }
 
     @Transactional
-    public AuthResponse login(LoginRequest request) {
+    public AuthResult signUp(SignUpRequest request) {
+        User user = userService.register(
+                request.email(), request.password(), request.name(), request.defaultPriceArea());
+        IssuedTokens tokens = issueTokens(user);
+        return new AuthResult(
+                AuthResponse.of(tokens.accessTokenResponse(), UserResponse.from(user)),
+                tokens.refreshToken(),
+                refreshTokenTtl);
+    }
+
+    @Transactional
+    public AuthResult login(LoginRequest request) {
         User user = userService.findByEmail(request.email()).orElse(null);
         String storedHash = user != null ? user.getPasswordHash() : unusablePasswordHash;
         boolean passwordMatches = passwordEncoder.matches(request.password(), storedHash);
@@ -88,11 +109,15 @@ public class AuthService {
             throw new BusinessException(ErrorCode.INVALID_CREDENTIALS);
         }
 
-        return AuthResponse.of(issueTokens(user), UserResponse.from(user));
+        IssuedTokens tokens = issueTokens(user);
+        return new AuthResult(
+                AuthResponse.of(tokens.accessTokenResponse(), UserResponse.from(user)),
+                tokens.refreshToken(),
+                refreshTokenTtl);
     }
 
     @Transactional
-    public TokenResponse refresh(String rawRefreshToken) {
+    public RefreshResult refresh(String rawRefreshToken) {
         RefreshToken storedToken = refreshTokenRepository.findByTokenHash(hash(rawRefreshToken))
                 .orElseThrow(() -> new BusinessException(ErrorCode.INVALID_TOKEN));
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
@@ -114,7 +139,8 @@ public class AuthService {
         }
 
         storedToken.revoke(now);
-        return issueTokens(user);
+        IssuedTokens tokens = issueTokens(user);
+        return new RefreshResult(tokens.accessTokenResponse(), tokens.refreshToken(), refreshTokenTtl);
     }
 
     /**
@@ -131,16 +157,16 @@ public class AuthService {
                 .ifPresent(token -> token.revoke(OffsetDateTime.now(ZoneOffset.UTC)));
     }
 
-    private TokenResponse issueTokens(User user) {
+    private IssuedTokens issueTokens(User user) {
         String rawRefreshToken = generateRefreshToken();
         OffsetDateTime expiresAt = OffsetDateTime.now(ZoneOffset.UTC).plus(refreshTokenTtl);
         refreshTokenRepository.save(RefreshToken.issue(user.getId(), hash(rawRefreshToken), expiresAt));
 
-        return new TokenResponse(
+        AccessTokenResponse accessTokenResponse = new AccessTokenResponse(
                 jwtTokenProvider.createAccessToken(user.getId()),
-                rawRefreshToken,
                 TOKEN_TYPE,
                 jwtTokenProvider.accessTokenTtlSeconds());
+        return new IssuedTokens(accessTokenResponse, rawRefreshToken);
     }
 
     private String generateRefreshToken() {
@@ -161,5 +187,8 @@ public class AuthService {
         } catch (NoSuchAlgorithmException ex) {
             throw new IllegalStateException("SHA-256 is not available in this JVM", ex);
         }
+    }
+
+    private record IssuedTokens(AccessTokenResponse accessTokenResponse, String refreshToken) {
     }
 }

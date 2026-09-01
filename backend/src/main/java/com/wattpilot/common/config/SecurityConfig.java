@@ -4,6 +4,7 @@ import com.wattpilot.common.security.CorsProperties;
 import com.wattpilot.common.security.JwtAuthenticationFilter;
 import com.wattpilot.common.security.JwtProperties;
 import com.wattpilot.common.security.JwtTokenProvider;
+import com.wattpilot.common.security.RefreshTokenCookieProperties;
 import com.wattpilot.common.security.RestAccessDeniedHandler;
 import com.wattpilot.common.security.RestAuthenticationEntryPoint;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -31,13 +32,16 @@ import java.util.List;
 /**
  * Stateless bearer-token security for the REST API.
  *
- * <p>There are no sessions, no login form and no CSRF tokens: every authenticated request
- * identifies itself with an {@code Authorization: Bearer} header, which is not attached
- * automatically by a browser and therefore not exposed to CSRF.
+ * <p>There are no sessions and no login form. Almost every authenticated request identifies itself
+ * with an {@code Authorization: Bearer} header, which a browser does not attach automatically and
+ * which is therefore not exposed to CSRF. The one exception is the refresh-token cookie read by
+ * {@code POST /auth/refresh}: it is constrained to {@code SameSite=Lax} and a narrow path (see
+ * {@link RefreshTokenCookieProperties}), so a cross-site page still cannot drive that endpoint and
+ * a separate CSRF token is not needed.
  */
 @Configuration
 @EnableWebSecurity
-@EnableConfigurationProperties({JwtProperties.class, CorsProperties.class})
+@EnableConfigurationProperties({JwtProperties.class, CorsProperties.class, RefreshTokenCookieProperties.class})
 public class SecurityConfig {
 
     /**
@@ -112,8 +116,10 @@ public class SecurityConfig {
                 HttpMethod.DELETE.name(),
                 HttpMethod.OPTIONS.name()));
         configuration.setAllowedHeaders(List.of(HttpHeaders.AUTHORIZATION, HttpHeaders.CONTENT_TYPE));
-        // Tokens travel in a header, never in a cookie, so credentialed requests are not needed.
-        configuration.setAllowCredentials(false);
+        // The refresh token travels in a cookie, so the browser must be allowed to send it on the
+        // cross-origin auth calls. Safe here because the allowed origins are an explicit list, never
+        // a wildcard.
+        configuration.setAllowCredentials(true);
         configuration.setMaxAge(Duration.ofHours(1));
         source.registerCorsConfiguration("/api/**", configuration);
         return source;

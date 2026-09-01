@@ -1,8 +1,10 @@
 package com.wattpilot.auth.controller;
 
 import com.wattpilot.auth.service.AuthService;
+import com.wattpilot.common.security.RefreshTokenCookieProperties;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.http.MediaType;
@@ -21,6 +23,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * end to end by {@code AuthApiIntegrationTest}.
  */
 @WebMvcTest(AuthController.class)
+@EnableConfigurationProperties(RefreshTokenCookieProperties.class)
 @AutoConfigureMockMvc(addFilters = false)
 class AuthControllerValidationTest {
 

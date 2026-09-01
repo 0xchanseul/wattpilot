@@ -7,6 +7,11 @@ info:
     Optimizes EV charging against Norwegian hourly electricity prices.
     V1 uses manually registered EVs, continuous charging windows, and mock charging;
     no vehicle-manufacturer control is performed.
+
+    Authentication: the access token is returned in the response body and sent back as
+    `Authorization: Bearer <token>`. The refresh token is never in a body; it is set as an
+    `HttpOnly`, `SameSite=Lax` cookie (`wp_refresh_token`, path `/api/v1/auth`) and read from
+    that cookie by `POST /auth/refresh` and `POST /auth/logout`.
 servers:
   - url: http://localhost:8081/api/v1
     description: Local development
@@ -36,6 +41,8 @@ paths:
       responses:
         '201':
           description: Account created
+          headers:
+            Set-Cookie: { $ref: '#/components/headers/RefreshTokenCookie' }
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AuthResponse' }
@@ -56,6 +63,8 @@ paths:
       responses:
         '200':
           description: Authenticated
+          headers:
+            Set-Cookie: { $ref: '#/components/headers/RefreshTokenCookie' }
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AuthResponse' }
@@ -66,33 +75,40 @@ paths:
     post:
       tags: [Auth]
       summary: Refresh access token
+      description: >-
+        Reads the refresh token from the `wp_refresh_token` cookie, rotates it, and returns a new
+        access token. The old refresh token is revoked. No request body.
       operationId: refreshToken
-      security: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/RefreshTokenRequest' }
+      security:
+        - refreshCookie: []
       responses:
         '200':
           description: Token refreshed
+          headers:
+            Set-Cookie: { $ref: '#/components/headers/RefreshTokenCookie' }
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/TokenResponse' }
+              schema: { $ref: '#/components/schemas/AccessTokenResponse' }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
   /auth/logout:
     post:
       tags: [Auth]
       summary: Log out and revoke refresh token
+      description: >-
+        Revokes the refresh token in the `wp_refresh_token` cookie and clears the cookie. Requires
+        an access token so one account cannot revoke another's session. No request body. Idempotent.
       operationId: logout
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/RefreshTokenRequest' }
+      security:
+        - bearerAuth: []
+          refreshCookie: []
       responses:
-        '204': { description: Logged out }
+        '204':
+          description: Logged out
+          headers:
+            Set-Cookie:
+              description: Clears the `wp_refresh_token` cookie (`Max-Age=0`).
+              schema: { type: string }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
   /users/me:
@@ -589,6 +605,23 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+    refreshCookie:
+      type: apiKey
+      in: cookie
+      name: wp_refresh_token
+      description: >-
+        Opaque refresh token delivered as an HttpOnly cookie by sign-up, login and refresh. The
+        browser sends it automatically; it is not accessible to JavaScript.
+
+  headers:
+    RefreshTokenCookie:
+      description: >-
+        Sets the `wp_refresh_token` cookie carrying the (rotated) refresh token.
+        Attributes: `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/api/v1/auth`,
+        `Max-Age` equal to the refresh-token lifetime.
+      schema: { type: string }
+      example: >-
+        wp_refresh_token=abc123; Max-Age=1209600; Path=/api/v1/auth; Secure; HttpOnly; SameSite=Lax
 
   parameters:
     Page:
@@ -697,24 +730,17 @@ components:
         email: { type: string, format: email, example: iris@example.com }
         password: { type: string, format: password, writeOnly: true, example: WattPilot123! }
 
-    RefreshTokenRequest:
+    AccessTokenResponse:
       type: object
-      required: [refreshToken]
-      properties:
-        refreshToken: { type: string, minLength: 1, writeOnly: true }
-
-    TokenResponse:
-      type: object
-      required: [accessToken, refreshToken, tokenType, expiresIn]
+      required: [accessToken, tokenType, expiresIn]
       properties:
         accessToken: { type: string, readOnly: true }
-        refreshToken: { type: string, readOnly: true }
         tokenType: { type: string, enum: [Bearer], example: Bearer }
         expiresIn: { type: integer, format: int64, description: Access-token lifetime in seconds, example: 3600 }
 
     AuthResponse:
       allOf:
-        - $ref: '#/components/schemas/TokenResponse'
+        - $ref: '#/components/schemas/AccessTokenResponse'
         - type: object
           required: [user]
           properties:

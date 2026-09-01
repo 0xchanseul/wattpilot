@@ -1,5 +1,6 @@
 package com.wattpilot.common.config;
 
+import com.wattpilot.common.security.RefreshTokenCookieProperties;
 import io.swagger.v3.oas.models.Components;
 import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.info.Info;
@@ -17,6 +18,7 @@ import org.springframework.context.annotation.Configuration;
 public class OpenApiConfig {
 
     private static final String BEARER_AUTH = "bearerAuth";
+    private static final String REFRESH_COOKIE = "refreshCookie";
 
     @Bean
     public OpenAPI wattPilotOpenAPI() {
@@ -25,10 +27,17 @@ public class OpenApiConfig {
                         .title("WattPilot API")
                         .version("v1")
                         .description("Runtime API documentation for the WattPilot backend."))
-                .components(new Components().addSecuritySchemes(BEARER_AUTH, new SecurityScheme()
-                        .type(SecurityScheme.Type.HTTP)
-                        .scheme("bearer")
-                        .bearerFormat("JWT")))
+                .components(new Components()
+                        .addSecuritySchemes(BEARER_AUTH, new SecurityScheme()
+                                .type(SecurityScheme.Type.HTTP)
+                                .scheme("bearer")
+                                .bearerFormat("JWT"))
+                        // The opaque refresh token: read from an HttpOnly cookie by /auth/refresh
+                        // and /auth/logout, never from a request body.
+                        .addSecuritySchemes(REFRESH_COOKIE, new SecurityScheme()
+                                .type(SecurityScheme.Type.APIKEY)
+                                .in(SecurityScheme.In.COOKIE)
+                                .name(RefreshTokenCookieProperties.COOKIE_NAME)))
                 // Applied to every operation, matching docs/openapi.yaml; the public auth
                 // endpoints opt out individually with @SecurityRequirements.
                 .addSecurityItem(new SecurityRequirement().addList(BEARER_AUTH));

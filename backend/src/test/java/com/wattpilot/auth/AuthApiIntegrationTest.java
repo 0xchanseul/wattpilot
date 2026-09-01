@@ -1,6 +1,7 @@
 package com.wattpilot.auth;
 
 import com.jayway.jsonpath.JsonPath;
+import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -8,6 +9,7 @@ import org.springframework.boot.testcontainers.service.connection.ServiceConnect
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.RequestBuilder;
 import org.testcontainers.junit.jupiter.Container;
@@ -20,6 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.cookie;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -39,24 +42,31 @@ class AuthApiIntegrationTest {
     static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:16");
 
     private static final AtomicInteger EMAIL_SEQUENCE = new AtomicInteger();
+    private static final String REFRESH_COOKIE = "wp_refresh_token";
 
     @Autowired
     private MockMvc mockMvc;
 
     @Test
-    void signUpReturnsTheCreatedUserWithATokenPair() throws Exception {
+    void signUpReturnsTheCreatedUserWithAnAccessTokenAndARefreshCookie() throws Exception {
         String email = nextEmail();
 
         mockMvc.perform(signUp(email, "wattpilot-secret"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.accessToken").isNotEmpty())
-                .andExpect(jsonPath("$.refreshToken").isNotEmpty())
                 .andExpect(jsonPath("$.tokenType").value("Bearer"))
                 .andExpect(jsonPath("$.expiresIn").value(3600))
                 .andExpect(jsonPath("$.user.email").value(email))
                 .andExpect(jsonPath("$.user.status").value("ACTIVE"))
                 .andExpect(jsonPath("$.user.defaultPriceArea").value("NO1"))
-                .andExpect(jsonPath("$.user.passwordHash").doesNotExist());
+                .andExpect(jsonPath("$.user.passwordHash").doesNotExist())
+                // The refresh token is delivered only as an HttpOnly cookie, never in the body.
+                .andExpect(jsonPath("$.refreshToken").doesNotExist())
+                .andExpect(cookie().exists(REFRESH_COOKIE))
+                .andExpect(cookie().httpOnly(REFRESH_COOKIE, true))
+                .andExpect(cookie().secure(REFRESH_COOKIE, true))
+                .andExpect(cookie().path(REFRESH_COOKIE, "/api/v1/auth"))
+                .andExpect(cookie().sameSite(REFRESH_COOKIE, "Lax"));
     }
 
     @Test
@@ -79,7 +89,7 @@ class AuthApiIntegrationTest {
     @Test
     void currentUserIsResolvedFromTheAccessToken() throws Exception {
         String email = nextEmail();
-        String body = signUpAndReturnBody(email);
+        String body = signUpAndReturnResponse(email).getContentAsString();
 
         mockMvc.perform(get("/api/v1/users/me")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + JsonPath.read(body, "$.accessToken")))
@@ -110,16 +120,23 @@ class AuthApiIntegrationTest {
     }
 
     @Test
-    void refreshRotatesTheTokenAndTheOldOneStopsWorking() throws Exception {
-        String issued = signUpAndReturnBody(nextEmail());
-        String firstRefreshToken = JsonPath.read(issued, "$.refreshToken");
+    void refreshWithoutACookieIsRejected() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/refresh"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("INVALID_TOKEN"));
+    }
 
-        String rotated = mockMvc.perform(refresh(firstRefreshToken))
+    @Test
+    void refreshRotatesTheTokenAndTheOldOneStopsWorking() throws Exception {
+        String firstRefreshToken = refreshCookieValue(signUpAndReturnResponse(nextEmail()));
+
+        MockHttpServletResponse rotated = mockMvc.perform(refresh(firstRefreshToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.accessToken").isNotEmpty())
-                .andReturn().getResponse().getContentAsString();
+                .andExpect(jsonPath("$.refreshToken").doesNotExist())
+                .andReturn().getResponse();
 
-        String secondRefreshToken = JsonPath.read(rotated, "$.refreshToken");
+        String secondRefreshToken = refreshCookieValue(rotated);
         assertThat(secondRefreshToken).isNotEqualTo(firstRefreshToken);
 
         mockMvc.perform(refresh(firstRefreshToken))
@@ -130,12 +147,14 @@ class AuthApiIntegrationTest {
     }
 
     @Test
-    void logoutRevokesTheRefreshTokenAndIsRepeatable() throws Exception {
-        String issued = signUpAndReturnBody(nextEmail());
-        String accessToken = JsonPath.read(issued, "$.accessToken");
-        String refreshToken = JsonPath.read(issued, "$.refreshToken");
+    void logoutRevokesTheRefreshTokenClearsTheCookieAndIsRepeatable() throws Exception {
+        MockHttpServletResponse issued = signUpAndReturnResponse(nextEmail());
+        String accessToken = JsonPath.read(issued.getContentAsString(), "$.accessToken");
+        String refreshToken = refreshCookieValue(issued);
 
-        mockMvc.perform(logout(accessToken, refreshToken)).andExpect(status().isNoContent());
+        mockMvc.perform(logout(accessToken, refreshToken))
+                .andExpect(status().isNoContent())
+                .andExpect(cookie().maxAge(REFRESH_COOKIE, 0));
         mockMvc.perform(logout(accessToken, refreshToken)).andExpect(status().isNoContent());
 
         mockMvc.perform(refresh(refreshToken))
@@ -145,8 +164,9 @@ class AuthApiIntegrationTest {
 
     @Test
     void oneUserCannotLogOutAnotherUsersSession() throws Exception {
-        String victimRefreshToken = JsonPath.read(signUpAndReturnBody(nextEmail()), "$.refreshToken");
-        String attackerAccessToken = JsonPath.read(signUpAndReturnBody(nextEmail()), "$.accessToken");
+        String victimRefreshToken = refreshCookieValue(signUpAndReturnResponse(nextEmail()));
+        String attackerAccessToken = JsonPath.read(
+                signUpAndReturnResponse(nextEmail()).getContentAsString(), "$.accessToken");
 
         mockMvc.perform(logout(attackerAccessToken, victimRefreshToken)).andExpect(status().isNoContent());
 
@@ -156,11 +176,7 @@ class AuthApiIntegrationTest {
 
     @Test
     void logoutRequiresAnAccessToken() throws Exception {
-        mockMvc.perform(post("/api/v1/auth/logout")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"refreshToken":"anything"}
-                                """))
+        mockMvc.perform(post("/api/v1/auth/logout").cookie(new Cookie(REFRESH_COOKIE, "anything")))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("AUTHENTICATION_REQUIRED"));
     }
@@ -175,7 +191,9 @@ class AuthApiIntegrationTest {
                         .header(HttpHeaders.ORIGIN, "http://localhost:5173")
                         .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "POST"))
                 .andExpect(status().isOk())
-                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "http://localhost:5173"));
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "http://localhost:5173"))
+                // The refresh cookie is only sent when the browser is told credentialed requests are allowed.
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true"));
     }
 
     @Test
@@ -186,10 +204,16 @@ class AuthApiIntegrationTest {
                 .andExpect(status().isForbidden());
     }
 
-    private String signUpAndReturnBody(String email) throws Exception {
+    private MockHttpServletResponse signUpAndReturnResponse(String email) throws Exception {
         return mockMvc.perform(signUp(email, "wattpilot-secret"))
                 .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
+                .andReturn().getResponse();
+    }
+
+    private static String refreshCookieValue(MockHttpServletResponse response) {
+        Cookie cookie = response.getCookie(REFRESH_COOKIE);
+        assertThat(cookie).as("refresh token cookie").isNotNull();
+        return cookie.getValue();
     }
 
     private static RequestBuilder signUp(String email, String password) {
@@ -201,20 +225,13 @@ class AuthApiIntegrationTest {
     }
 
     private static RequestBuilder refresh(String refreshToken) {
-        return post("/api/v1/auth/refresh")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("""
-                        {"refreshToken":"%s"}
-                        """.formatted(refreshToken));
+        return post("/api/v1/auth/refresh").cookie(new Cookie(REFRESH_COOKIE, refreshToken));
     }
 
     private static RequestBuilder logout(String accessToken, String refreshToken) {
         return post("/api/v1/auth/logout")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("""
-                        {"refreshToken":"%s"}
-                        """.formatted(refreshToken));
+                .cookie(new Cookie(REFRESH_COOKIE, refreshToken));
     }
 
     private static String nextEmail() {

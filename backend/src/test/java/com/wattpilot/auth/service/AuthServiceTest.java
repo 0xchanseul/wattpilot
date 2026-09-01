@@ -107,13 +107,14 @@ class AuthServiceTest {
     void loginWithValidCredentialsReturnsATokenPairAndTheUser() {
         when(userService.findByEmail(anyString())).thenReturn(Optional.of(activeUser()));
 
-        var response = authService.login(new LoginRequest("iris@example.com", RAW_PASSWORD));
+        var result = authService.login(new LoginRequest("iris@example.com", RAW_PASSWORD));
 
-        assertThat(response.accessToken()).isEqualTo("access-token");
-        assertThat(response.refreshToken()).isNotBlank();
-        assertThat(response.tokenType()).isEqualTo("Bearer");
-        assertThat(response.expiresIn()).isEqualTo(3600L);
-        assertThat(response.user().email()).isEqualTo("iris@example.com");
+        assertThat(result.body().accessToken()).isEqualTo("access-token");
+        assertThat(result.body().tokenType()).isEqualTo("Bearer");
+        assertThat(result.body().expiresIn()).isEqualTo(3600L);
+        assertThat(result.body().user().email()).isEqualTo("iris@example.com");
+        assertThat(result.refreshToken()).isNotBlank();
+        assertThat(result.refreshTokenValidity()).isEqualTo(Duration.ofDays(14));
         verify(refreshTokenRepository).save(any(RefreshToken.class));
     }
 
@@ -123,10 +124,12 @@ class AuthServiceTest {
         when(refreshTokenRepository.findByTokenHash(anyString())).thenReturn(Optional.of(stored));
         when(userService.getById(1L)).thenReturn(activeUser());
 
-        var response = authService.refresh(PRESENTED_TOKEN);
+        var result = authService.refresh(PRESENTED_TOKEN);
 
         assertThat(stored.isRevoked()).isTrue();
-        assertThat(response.refreshToken()).isNotBlank();
+        assertThat(result.body().accessToken()).isEqualTo("access-token");
+        assertThat(result.refreshToken()).isNotBlank();
+        assertThat(result.refreshToken()).isNotEqualTo(PRESENTED_TOKEN);
         verify(refreshTokenRepository).save(any(RefreshToken.class));
     }
 
