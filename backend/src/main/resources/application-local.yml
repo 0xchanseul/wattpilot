@@ -6,10 +6,11 @@ server:
 spring:
   # Load shared local secrets from the repository-root .env file. The path is
   # resolved against the process working directory, which is the backend module
-  # root when running via Gradle bootRun or the IDE. Optional so the app can also
-  # start from plain environment variables (e.g. CI, container runs).
+  # root (one level below the repository root) when running via Gradle bootRun or
+  # the IDE. Optional so the app can also start from plain environment variables
+  # (e.g. CI, container runs).
   config:
-    import: optional:file:../../.env[.properties]
+    import: optional:file:../.env[.properties]
 
   datasource:
     url: jdbc:postgresql://localhost:${POSTGRES_PORT:5432}/${POSTGRES_DB:wattpilot}
