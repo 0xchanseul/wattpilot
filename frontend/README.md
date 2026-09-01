@@ -32,7 +32,7 @@ The dev server runs on http://localhost:5173 and calls the backend at `VITE_API_
 
 | Variable | Description | Example |
 | --- | --- | --- |
-| `VITE_API_BASE_URL` | Base URL of the WattPilot backend REST API | `http://localhost:8080/api/v1` |
+| `VITE_API_BASE_URL` | Base URL of the WattPilot backend REST API | `http://localhost:8081/api/v1` |
 
 Only `VITE_`-prefixed variables are exposed to the browser bundle, so no secret may be stored here.
 `.env` is git-ignored; only `.env.example` is committed.

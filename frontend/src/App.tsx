@@ -1,5 +1,5 @@
-function App() {
-  return <h1>WattPilot</h1>
-}
+import { AppProviders } from '@/app/providers'
 
-export default App
+export default function App() {
+  return <AppProviders />
+}
