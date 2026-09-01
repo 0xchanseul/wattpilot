@@ -23,7 +23,11 @@ public enum ErrorCode {
     INVALID_TOKEN(HttpStatus.UNAUTHORIZED, "The token is invalid."),
     TOKEN_EXPIRED(HttpStatus.UNAUTHORIZED, "The token has expired."),
     EMAIL_ALREADY_EXISTS(HttpStatus.CONFLICT, "This email is already registered."),
-    USER_NOT_FOUND(HttpStatus.NOT_FOUND, "User not found.");
+    USER_NOT_FOUND(HttpStatus.NOT_FOUND, "User not found."),
+
+    // An EV that does not exist, or exists but is owned by another account: both are reported the
+    // same way so the API cannot be used to probe which EV ids exist.
+    EV_NOT_FOUND(HttpStatus.NOT_FOUND, "EV not found.");
 
     private final HttpStatus status;
     private final String defaultMessage;

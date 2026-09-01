@@ -112,12 +112,16 @@ paths:
     get:
       tags: [EV]
       summary: List my EVs
+      description: EVs owned by the current user, newest first.
       operationId: listEvs
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/Size'
         - name: status
           in: query
+          description: >-
+            Filters by lifecycle status. Defaults to ACTIVE when omitted, so deactivated EVs are
+            hidden unless INACTIVE is requested explicitly.
           schema: { $ref: '#/components/schemas/EvStatus' }
       responses:
         '200':

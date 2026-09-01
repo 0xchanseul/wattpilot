@@ -1,6 +1,7 @@
 package com.wattpilot.common.config;
 
 import com.wattpilot.auth.repository.RefreshTokenRepository;
+import com.wattpilot.ev.repository.EvRepository;
 import com.wattpilot.user.repository.UserRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,6 +33,9 @@ class OpenApiEndpointsSmokeTest {
 
     @MockitoBean
     RefreshTokenRepository refreshTokenRepository;
+
+    @MockitoBean
+    EvRepository evRepository;
 
     @Test
     void apiDocsExposesConfiguredInfo() throws Exception {
