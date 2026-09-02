@@ -13,6 +13,25 @@ spring:
         max-page-size: 100
 
 wattpilot:
+  electricity:
+    collection:
+      # Scheduled next-day price collection. Disabled for local development and tests
+      # (see application-local.yml); enabled by default everywhere else.
+      enabled: ${PRICE_COLLECTION_ENABLED:true}
+      # Europe/Oslo 13:15, then hourly through 22:15. The 13:15 run collects most zones
+      # (next-day prices are published just after 13:00 Oslo); later runs pick up any zone
+      # that was not ready. Zones already stored in full are skipped.
+      cron: ${PRICE_COLLECTION_CRON:0 15 13-22 * * *}
+      # Time zone for the cron above and for resolving which date is "tomorrow".
+      zone: ${PRICE_COLLECTION_ZONE:Europe/Oslo}
+
+  integration:
+    hva-koster-strommen:
+      # Public electricity-price API (no key, no auth). Base URL without a trailing slash.
+      base-url: ${HVA_KOSTER_STROMMEN_BASE_URL:https://www.hvakosterstrommen.no/api/v1}
+      connect-timeout: ${HVA_KOSTER_STROMMEN_CONNECT_TIMEOUT:3s}
+      read-timeout: ${HVA_KOSTER_STROMMEN_READ_TIMEOUT:5s}
+
   security:
     jwt:
       # Base64-encoded HS256 key of at least 32 bytes. Supplied per environment;

@@ -26,6 +26,12 @@ spring:
     enabled: true
 
 wattpilot:
+  electricity:
+    collection:
+      # Do not hit the real Hva koster strømmen API during local development or tests.
+      # Set PRICE_COLLECTION_ENABLED=true (or override here) to exercise the scheduler locally.
+      enabled: ${PRICE_COLLECTION_ENABLED:false}
+
   security:
     cors:
       # Vite dev server default origin; the frontend calls the backend cross-origin.

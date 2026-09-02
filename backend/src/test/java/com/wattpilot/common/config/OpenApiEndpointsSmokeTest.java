@@ -1,6 +1,7 @@
 package com.wattpilot.common.config;
 
 import com.wattpilot.auth.repository.RefreshTokenRepository;
+import com.wattpilot.electricity.repository.ElectricityPriceRepository;
 import com.wattpilot.ev.repository.EvRepository;
 import com.wattpilot.user.repository.UserRepository;
 import org.junit.jupiter.api.Test;
@@ -36,6 +37,9 @@ class OpenApiEndpointsSmokeTest {
 
     @MockitoBean
     EvRepository evRepository;
+
+    @MockitoBean
+    ElectricityPriceRepository electricityPriceRepository;
 
     @Test
     void apiDocsExposesConfiguredInfo() throws Exception {

@@ -27,7 +27,12 @@ public enum ErrorCode {
 
     // An EV that does not exist, or exists but is owned by another account: both are reported the
     // same way so the API cannot be used to probe which EV ids exist.
-    EV_NOT_FOUND(HttpStatus.NOT_FOUND, "EV not found.");
+    EV_NOT_FOUND(HttpStatus.NOT_FOUND, "EV not found."),
+
+    // No stored electricity price covers the requested area and time.
+    ELECTRICITY_PRICE_NOT_FOUND(HttpStatus.NOT_FOUND, "No electricity price is available for the requested area and time."),
+    // The from/to query window is empty or inverted: each bound parses, but the range cannot be served.
+    INVALID_TIME_RANGE(HttpStatus.UNPROCESSABLE_CONTENT, "The 'to' timestamp must be after 'from'.");
 
     private final HttpStatus status;
     private final String defaultMessage;
