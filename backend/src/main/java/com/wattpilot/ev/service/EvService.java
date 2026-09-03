@@ -53,6 +53,19 @@ public class EvService {
         return EvResponse.from(getOwnedEv(userId, evId));
     }
 
+    /**
+     * Returns the caller's ACTIVE EV for use by other domains (e.g. charging optimization). A missing
+     * EV, one owned by another user, and a deactivated EV are all reported as {@code EV_NOT_FOUND} so
+     * a caller cannot probe an EV's existence or lifecycle state.
+     */
+    public Ev getActiveOwnedEv(Long userId, Long evId) {
+        Ev ev = getOwnedEv(userId, evId);
+        if (!ev.isActive()) {
+            throw new BusinessException(ErrorCode.EV_NOT_FOUND);
+        }
+        return ev;
+    }
+
     @Transactional
     public EvResponse update(Long userId, Long evId, UpdateEvRequest request) {
         Ev ev = getOwnedEv(userId, evId);

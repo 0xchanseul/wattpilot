@@ -51,6 +51,24 @@ public interface ElectricityPriceRepository extends JpaRepository<ElectricityPri
                     @Param("to") OffsetDateTime to);
 
     /**
+     * Hours that overlap {@code [from, to)}: an hour whose start is before {@code from} but whose end
+     * is after it is included, so charging optimization can use a partial leading hour. Ordered by
+     * start time.
+     */
+    @Query("""
+            select p from ElectricityPrice p
+            where p.provider = :provider
+              and p.priceArea = :priceArea
+              and p.endsAt > :from
+              and p.startsAt < :to
+            order by p.startsAt asc
+            """)
+    List<ElectricityPrice> findOverlapping(@Param("provider") PriceProvider provider,
+                                           @Param("priceArea") PriceArea priceArea,
+                                           @Param("from") OffsetDateTime from,
+                                           @Param("to") OffsetDateTime to);
+
+    /**
      * The price interval that contains {@code at} ({@code startsAt <= at < endsAt}). Ordered by start
      * descending and limited so overlapping data, if it ever occurs, resolves to the most recent hour.
      */

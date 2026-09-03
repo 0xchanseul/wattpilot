@@ -13,6 +13,12 @@ spring:
         max-page-size: 100
 
 wattpilot:
+  charging:
+    # Fraction of grid energy that reaches the battery. V1 uses one system-wide value
+    # (not stored per EV); it only lengthens the estimated charging duration, while the
+    # billed energy and cost are computed on the full charger draw.
+    efficiency: ${CHARGING_EFFICIENCY:0.9}
+
   electricity:
     collection:
       # Scheduled next-day price collection. Disabled for local development and tests

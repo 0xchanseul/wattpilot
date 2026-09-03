@@ -6,6 +6,7 @@ import com.wattpilot.common.exception.ErrorCode;
 import com.wattpilot.electricity.dto.ElectricityPriceListResponse;
 import com.wattpilot.electricity.dto.ElectricityPriceResponse;
 import com.wattpilot.electricity.dto.PriceImportResult;
+import com.wattpilot.electricity.dto.PricePoint;
 import com.wattpilot.electricity.dto.PriceSlot;
 import com.wattpilot.electricity.entity.ElectricityPrice;
 import com.wattpilot.electricity.entity.PriceProvider;
@@ -42,7 +43,7 @@ public class ElectricityPriceService {
      * Norwegian bidding zones follow Oslo wall-clock time (CET/CEST). Day boundaries for a
      * date-based lookup are resolved in this zone so a DST day is still treated as one calendar day.
      */
-    static final ZoneId PRICE_ZONE = ZoneId.of("Europe/Oslo");
+    public static final ZoneId PRICE_ZONE = ZoneId.of("Europe/Oslo");
 
     /** V1 reads only ever expose the single provider the app imports from. */
     private static final PriceProvider V1_PROVIDER = PriceProvider.HVA_KOSTER_STROMMEN;
@@ -141,6 +142,17 @@ public class ElectricityPriceService {
         OffsetDateTime nextDayStart = date.plusDays(1).atStartOfDay(PRICE_ZONE).toOffsetDateTime();
         long expectedHours = Duration.between(dayStart, nextDayStart).toHours();
         return repository.countRange(V1_PROVIDER, priceArea, dayStart, nextDayStart) >= expectedHours;
+    }
+
+    /**
+     * Hourly prices that overlap {@code [from, to)} for the area, ordered by start time. A leading or
+     * trailing hour that only partially overlaps the window is included. Backs charging optimization,
+     * which prorates those partial hours itself.
+     */
+    public List<PricePoint> getPricePointsInWindow(PriceArea priceArea, OffsetDateTime from, OffsetDateTime to) {
+        return repository.findOverlapping(V1_PROVIDER, priceArea, from, to).stream()
+                .map(price -> PricePoint.from(price, PRICE_ZONE))
+                .toList();
     }
 
     /**

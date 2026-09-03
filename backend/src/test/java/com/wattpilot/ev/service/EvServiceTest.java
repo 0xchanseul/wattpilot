@@ -72,6 +72,26 @@ class EvServiceTest {
     }
 
     @Test
+    void getActiveOwnedEvReturnsTheEvForOtherDomainsToUse() {
+        Ev ev = activeEv();
+        when(evRepository.findByIdAndUserId(EV_ID, USER_ID)).thenReturn(Optional.of(ev));
+
+        assertThat(evService.getActiveOwnedEv(USER_ID, EV_ID)).isSameAs(ev);
+    }
+
+    @Test
+    void getActiveOwnedEvOnADeactivatedEvIsReportedAsNotFound() {
+        Ev ev = activeEv();
+        ev.deactivate();
+        when(evRepository.findByIdAndUserId(EV_ID, USER_ID)).thenReturn(Optional.of(ev));
+
+        assertThatThrownBy(() -> evService.getActiveOwnedEv(USER_ID, EV_ID))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).errorCode())
+                .isEqualTo(ErrorCode.EV_NOT_FOUND);
+    }
+
+    @Test
     void updateAppliesOnlyTheProvidedFieldsAndLeavesTheRestUnchanged() {
         Ev ev = activeEv();
         when(evRepository.findByIdAndUserId(EV_ID, USER_ID)).thenReturn(Optional.of(ev));
