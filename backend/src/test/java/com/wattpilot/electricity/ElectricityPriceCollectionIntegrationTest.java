@@ -8,8 +8,10 @@ import com.wattpilot.electricity.dto.PriceSlot;
 import com.wattpilot.electricity.entity.PriceProvider;
 import com.wattpilot.electricity.provider.ElectricityPriceProvider;
 import com.wattpilot.electricity.provider.ElectricityPriceProviderException;
+import com.wattpilot.electricity.repository.ElectricityPriceRepository;
 import com.wattpilot.electricity.service.ElectricityPriceCollectionService;
 import com.wattpilot.electricity.service.ElectricityPriceService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -57,6 +59,19 @@ class ElectricityPriceCollectionIntegrationTest {
 
     @Autowired
     private ElectricityPriceService electricityPriceService;
+
+    @Autowired
+    private ElectricityPriceRepository priceRepository;
+
+    /**
+     * The PostgreSQL container is shared by every test in this class and each test targets the same
+     * date and areas, so the price table has to be cleared between tests. Without this, a test that
+     * stores a full day first makes every later collection a no-op ("already complete").
+     */
+    @BeforeEach
+    void clearStoredPrices() {
+        priceRepository.deleteAllInBatch();
+    }
 
     @Test
     void collectsAllFiveAreasAndStoresEveryHour() {
