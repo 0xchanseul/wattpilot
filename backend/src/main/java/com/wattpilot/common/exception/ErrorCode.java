@@ -32,7 +32,13 @@ public enum ErrorCode {
     // No stored electricity price covers the requested area and time.
     ELECTRICITY_PRICE_NOT_FOUND(HttpStatus.NOT_FOUND, "No electricity price is available for the requested area and time."),
     // The from/to query window is empty or inverted: each bound parses, but the range cannot be served.
-    INVALID_TIME_RANGE(HttpStatus.UNPROCESSABLE_CONTENT, "The 'to' timestamp must be after 'from'.");
+    INVALID_TIME_RANGE(HttpStatus.UNPROCESSABLE_CONTENT, "The 'to' timestamp must be after 'from'."),
+
+    // A charging plan that does not exist, is owned by another account, or is a FAILED optimization
+    // attempt: all reported the same way so the API cannot be used to probe plan ids.
+    CHARGING_PLAN_NOT_FOUND(HttpStatus.NOT_FOUND, "Charging plan not found."),
+    // The charging-plan request was valid but no feasible continuous charging window could be produced.
+    CHARGING_PLAN_INFEASIBLE(HttpStatus.UNPROCESSABLE_CONTENT, "No feasible charging window could be calculated for the request.");
 
     private final HttpStatus status;
     private final String defaultMessage;

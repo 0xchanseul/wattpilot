@@ -273,6 +273,9 @@ paths:
       responses:
         '201':
           description: Plan calculated successfully (SUCCEEDED)
+          headers:
+            Location:
+              schema: { type: string, example: /api/v1/charging-plans/1 }
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ChargingPlan' }
@@ -280,7 +283,14 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
-        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '422':
+          description: >-
+            The request was valid but no feasible continuous charging window exists. The attempt is
+            persisted as a FAILED plan and its id and reason are returned so the client can show the
+            user why no recommendation was produced.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/ChargingPlanInfeasibleResponse' }
     get:
       tags: [Charging Optimization]
       summary: List my charging plans
@@ -886,12 +896,28 @@ components:
         requiredCompletionAt: { type: string, format: date-time }
         earliestStartAt: { type: string, format: date-time }
         priceArea: { $ref: '#/components/schemas/PriceArea' }
-        calculatedEnergyKwh: { type: number, format: double }
-        effectiveChargingPowerKw: { type: number, format: double, exclusiveMinimum: true, minimum: 0, example: 7.4 }
+        calculatedEnergyKwh:
+          type: number
+          format: double
+          description: Battery-side energy to add (target). Charging efficiency is not applied here.
+        effectiveChargingPowerKw:
+          type: number
+          format: double
+          exclusiveMinimum: true
+          minimum: 0
+          example: 7.4
+          description: >-
+            min(EV max AC charging power, charger power). The EV/charger power limit before the
+            charging efficiency is applied; efficiency only lengthens estimatedDurationMinutes.
         estimatedDurationMinutes: { type: integer, minimum: 1 }
         recommendedStartAt: { type: string, format: date-time }
         recommendedEndAt: { type: string, format: date-time }
-        expectedEnergyKwh: { type: number, format: double }
+        expectedEnergyKwh:
+          type: number
+          format: double
+          description: >-
+            Grid-side energy drawn over the window (calculatedEnergyKwh / efficiency), including
+            efficiency loss. Equals the sum of the slot plannedEnergyKwh values.
         estimatedCostNok: { type: number, format: double }
         baselineCostNok:
           type: number
@@ -904,6 +930,28 @@ components:
           description: Consecutive price slots that make up the selected continuous charging window.
           items: { $ref: '#/components/schemas/ChargingPlanSlot' }
         createdAt: { type: string, format: date-time }
+
+    ChargingPlanInfeasibleResponse:
+      description: >-
+        problem+json body for POST /charging-plans when the request is valid but no feasible charging
+        window exists. Carries the shared error fields plus the persisted FAILED plan's id and reason.
+      type: object
+      required: [timestamp, status, code, message, path, traceId, chargingPlanId, planStatus, reasonCode, failureReason]
+      properties:
+        timestamp: { type: string, format: date-time }
+        status: { type: integer, example: 422 }
+        code: { type: string, example: CHARGING_PLAN_INFEASIBLE }
+        message: { type: string, example: No feasible charging window could be calculated for the request. }
+        path: { type: string, example: /api/v1/charging-plans }
+        traceId: { type: string, example: 7b9f52e8a61b4a74 }
+        chargingPlanId: { type: integer, format: int64, minimum: 1, example: 1 }
+        planStatus: { type: string, enum: [FAILED] }
+        reasonCode:
+          type: string
+          enum: [DEADLINE_TOO_SOON, INSUFFICIENT_PRICE_DATA, NO_CONTINUOUS_WINDOW]
+        failureReason:
+          type: string
+          example: Charging needs 150 minutes but only 120 are available before the deadline.
 
     CreateScheduleRequest:
       type: object

@@ -24,12 +24,12 @@ flowchart TD
     J --> K[Calculate Required Energy and Charging Duration]
     K --> L[Find Cheapest Continuous Charging Window]
 
-    L --> M[Show Recommended Charging Schedule]
+    L --> M[Show Recommended Charging Plan]
 
-    M --> N{Confirm Schedule?}
+    M --> N{Confirm Plan?}
 
     N -- No --> H
-    N -- Yes --> O[Create Charging Reservation]
+    N -- Yes --> O[Create Charging Schedule]
 
     O --> P[Wait Until Scheduled Time]
     P --> Q[Execute Mock Charging]

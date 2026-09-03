@@ -18,13 +18,10 @@ Enum price_provider {
   TIBBER
 }
 
-Enum charging_plan_status {
-  PENDING
-  SCHEDULED
-  CANCELLED
-  COMPLETED
-  FAILED
-}
+// charging_plans.status records the outcome of one optimization attempt. Stored as a
+// CHECK-constrained varchar (like price_area), not a database enum type.
+//   SUCCEEDED - a feasible continuous window was found; recommendation fields are populated
+//   FAILED    - the request was valid but no window could be produced; only failure_reason is set
 
 Enum charging_schedule_status {
   CREATED
@@ -122,6 +119,7 @@ Table electricity_prices {
 
 Table charging_plans {
   id bigint [pk, increment]
+  user_id bigint [not null, ref: > users.id]
   ev_id bigint [not null, ref: > evs.id]
 
   current_battery_percent decimal(5,2) [not null]
@@ -149,13 +147,14 @@ Table charging_plans {
   baseline_cost_nok decimal(12,4)
   expected_savings_nok decimal(12,4)
 
-  status charging_plan_status [not null, default: 'PENDING']
+  status varchar(20) [not null, note: 'SUCCEEDED or FAILED']
   failure_reason varchar(500)
   created_at timestamptz [not null]
   updated_at timestamptz [not null]
 
   Indexes {
     ev_id
+    (user_id, created_at)
     (status, required_completion_at)
   }
 
@@ -173,6 +172,11 @@ Table charging_plans {
     `estimated_duration_minutes IS NULL OR estimated_duration_minutes > 0` [name: 'charging_plan_duration_positive']
     `recommended_end_at IS NULL OR recommended_start_at IS NULL OR recommended_end_at > recommended_start_at` [name: 'charging_plan_recommended_range_valid']
     `expected_energy_kwh IS NULL OR expected_energy_kwh >= 0` [name: 'charging_plan_expected_energy_non_negative']
+    `status IN ('SUCCEEDED', 'FAILED')` [name: 'charging_plan_status_valid']
+    // A SUCCEEDED plan carries a complete recommendation and no failure reason.
+    `status <> 'SUCCEEDED' OR (calculated_energy_kwh IS NOT NULL AND effective_charging_power_kw IS NOT NULL AND estimated_duration_minutes IS NOT NULL AND recommended_start_at IS NOT NULL AND recommended_end_at IS NOT NULL AND expected_energy_kwh IS NOT NULL AND estimated_cost_nok IS NOT NULL AND baseline_cost_nok IS NOT NULL AND expected_savings_nok IS NOT NULL AND failure_reason IS NULL)` [name: 'charging_plan_succeeded_fields_present']
+    // A FAILED plan carries only the failure reason; every success-only field is null.
+    `status <> 'FAILED' OR (failure_reason IS NOT NULL AND calculated_energy_kwh IS NULL AND effective_charging_power_kw IS NULL AND estimated_duration_minutes IS NULL AND recommended_start_at IS NULL AND recommended_end_at IS NULL AND expected_energy_kwh IS NULL AND estimated_cost_nok IS NULL AND baseline_cost_nok IS NULL AND expected_savings_nok IS NULL)` [name: 'charging_plan_failed_fields_absent']
   }
 }
 
@@ -181,10 +185,11 @@ Table charging_plan_slots {
   charging_plan_id bigint [not null, ref: > charging_plans.id]
   electricity_price_id bigint [not null, ref: > electricity_prices.id]
 
-  slot_start_at timestamptz [not null]
+  slot_start_at timestamptz [not null, note: 'Real overlap with the charging window; first/last slot may be partial']
   slot_end_at timestamptz [not null]
-  planned_energy_kwh decimal(8,2) [not null]
-  expected_cost_nok decimal(12,4) [not null]
+  price_per_kwh decimal(12,6) [not null, note: 'Snapshot of the hour price at calculation time (electricity_prices rows are upserted in place)']
+  planned_energy_kwh decimal(8,2) [not null, note: 'Grid-side energy drawn in this slot']
+  expected_cost_nok decimal(12,4) [not null, note: 'planned_energy_kwh * price_per_kwh']
   sequence_no int [not null]
 
   Indexes {
@@ -194,6 +199,7 @@ Table charging_plan_slots {
 
   checks {
     `slot_end_at > slot_start_at` [name: 'charging_plan_slot_time_range_valid']
+    `price_per_kwh >= 0` [name: 'charging_plan_slot_price_non_negative']
     `planned_energy_kwh > 0` [name: 'charging_plan_slot_energy_positive']
     `sequence_no > 0` [name: 'charging_plan_slot_sequence_positive']
   }

@@ -156,6 +156,16 @@ public class ElectricityPriceService {
     }
 
     /**
+     * The stored price rows that overlap {@code [from, to)} for the area, ordered by start time.
+     *
+     * <p>Same rows as {@link #getPricePointsInWindow} but as entities, so charging-plan persistence
+     * can link each recommended slot back to the {@code electricity_prices} row it was priced from.
+     */
+    public List<ElectricityPrice> getPricesInWindow(PriceArea priceArea, OffsetDateTime from, OffsetDateTime to) {
+        return repository.findOverlapping(V1_PROVIDER, priceArea, from, to);
+    }
+
+    /**
      * The price interval covering the current instant for the area. Backs
      * {@code GET /electricity-prices/latest}; a missing interval is a 404.
      */
