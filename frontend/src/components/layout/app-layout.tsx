@@ -1,14 +1,20 @@
 import { useState } from 'react'
-import { Link, NavLink, Outlet, useNavigate } from 'react-router'
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/features/auth/use-auth'
 import { cn } from '@/lib/utils'
 
+const NAV_ITEMS = [
+  { to: '/evs', label: 'My EVs', match: '/evs' },
+  { to: '/charging/schedules', label: 'Charging', match: '/charging' },
+] as const
+
 export function AppLayout() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
   const [loggingOut, setLoggingOut] = useState(false)
 
   const handleLogout = async () => {
@@ -31,17 +37,23 @@ export function AppLayout() {
             WattPilot
           </Link>
           <nav className="flex items-center gap-1">
-            <NavLink
-              to="/evs"
-              className={({ isActive }) =>
-                cn(
-                  'rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
-                  isActive ? 'bg-secondary text-secondary-foreground' : 'text-muted-foreground hover:text-foreground',
-                )
-              }
-            >
-              My EVs
-            </NavLink>
+            {NAV_ITEMS.map((item) => {
+              const active = location.pathname.startsWith(item.match)
+              return (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  className={cn(
+                    'rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
+                    active
+                      ? 'bg-secondary text-secondary-foreground'
+                      : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  {item.label}
+                </NavLink>
+              )
+            })}
           </nav>
           <div className="flex items-center gap-3">
             {user ? (

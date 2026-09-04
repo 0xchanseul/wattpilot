@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
-import { ChevronLeftIcon, PencilIcon } from 'lucide-react'
+import { ChevronLeftIcon, PencilIcon, ZapIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { ApiErrorAlert } from '@/components/api-error-alert'
@@ -84,6 +84,11 @@ export function EvDetailPage() {
 
           {ev.status === 'ACTIVE' ? (
             <div className="flex flex-wrap items-center gap-3">
+              <Button asChild>
+                <Link to={`/charging/new?evId=${ev.id}`}>
+                  <ZapIcon /> Plan charging
+                </Link>
+              </Button>
               <Button asChild variant="outline">
                 <Link to={`/evs/${ev.id}/edit`}>
                   <PencilIcon /> Edit
