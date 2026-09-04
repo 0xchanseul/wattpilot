@@ -1,5 +1,7 @@
 package com.wattpilot.charging.service;
 
+import com.wattpilot.charging.dto.ChargingCandidate;
+import com.wattpilot.charging.dto.ChargingCandidatesResult;
 import com.wattpilot.charging.dto.ChargingPlanSlot;
 import com.wattpilot.charging.dto.EvSnapshot;
 import com.wattpilot.charging.dto.OptimizationResult;
@@ -14,17 +16,21 @@ import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.NavigableSet;
+import java.util.Set;
 import java.util.TreeSet;
 import java.util.function.Function;
 
 /**
- * Pure charging-window optimization: no Spring collaborators, no I/O.
+ * Pure charging-window optimization: no Spring collaborators, no I/O, no persistence.
  *
- * <p>Given the energy target, the usable time window and the hourly prices, it finds the cheapest
+ * <p>Given the energy target, the usable time window and the hourly prices, it enumerates every
  * gap-free continuous window that satisfies the required charging duration and finishes by the
- * deadline.
+ * deadline, then ranks them by cost. {@link #calculateCandidates} returns the full ranked list (the
+ * preview shows the cheapest few, the scheduler matches the user's pick against it);
+ * {@link #optimize} is a thin adapter that returns only the cheapest window.
  *
  * <p><b>Why only "breakpoints" are checked.</b> The charging window has a fixed width. Sliding it
  * forward by a small step trades a sliver of the leaving hour for an equal sliver of the entering
@@ -49,6 +55,8 @@ public class ChargingWindowCalculator {
     private static final BigDecimal MINUTES_PER_HOUR = BigDecimal.valueOf(60);
 
     /**
+     * Every feasible continuous charging window, ranked cheapest first.
+     *
      * @param evSnapshot        EV figures to charge with
      * @param requiredEnergyKwh battery-side energy to add (already validated {@code > 0})
      * @param efficiency        fraction of grid energy that reaches the battery
@@ -56,12 +64,12 @@ public class ChargingWindowCalculator {
      * @param deadline          charging must finish by this instant (minute-aligned)
      * @param prices            hours overlapping {@code [earliestStart, deadline)}, ordered by start
      */
-    public OptimizationResult optimize(EvSnapshot evSnapshot,
-                                       BigDecimal requiredEnergyKwh,
-                                       BigDecimal efficiency,
-                                       OffsetDateTime earliestStart,
-                                       OffsetDateTime deadline,
-                                       List<PricePoint> prices) {
+    public ChargingCandidatesResult calculateCandidates(EvSnapshot evSnapshot,
+                                                        BigDecimal requiredEnergyKwh,
+                                                        BigDecimal efficiency,
+                                                        OffsetDateTime earliestStart,
+                                                        OffsetDateTime deadline,
+                                                        List<PricePoint> prices) {
 
         BigDecimal deliveredPowerKw = evSnapshot.maxAcChargingPowerKw().min(evSnapshot.defaultChargerPowerKw());
         BigDecimal effectivePowerKw = deliveredPowerKw.multiply(efficiency);
@@ -76,58 +84,102 @@ public class ChargingWindowCalculator {
         OffsetDateTime latestStart = deadline.minus(chargingDuration);
         if (latestStart.isBefore(earliestStart)) {
             long availableMinutes = Math.max(0, Duration.between(earliestStart, deadline).toMinutes());
-            return new OptimizationResult.Infeasible(OptimizationResult.Reason.DEADLINE_TOO_SOON,
+            return new ChargingCandidatesResult.Infeasible(OptimizationResult.Reason.DEADLINE_TOO_SOON,
                     "Charging needs %d minutes but only %d are available before the deadline."
                             .formatted(durationMinutes, availableMinutes));
         }
 
         if (prices.isEmpty()) {
-            return new OptimizationResult.Infeasible(OptimizationResult.Reason.INSUFFICIENT_PRICE_DATA,
+            return new ChargingCandidatesResult.Infeasible(OptimizationResult.Reason.INSUFFICIENT_PRICE_DATA,
                     "No stored electricity prices cover the requested charging window.");
         }
 
-        List<ChargingPlanSlot> bestSlots = null;
-        OffsetDateTime bestStart = null;
-        BigDecimal bestCost = null;
+        List<Window> windows = new ArrayList<>();
         for (OffsetDateTime candidate : candidateStarts(earliestStart, latestStart, prices)) {
             List<ChargingPlanSlot> slots =
                     buildSlots(candidate, candidate.plus(chargingDuration), deliveredPowerKw, prices);
             if (slots == null) {
                 continue;
             }
-            BigDecimal cost = sum(slots, ChargingPlanSlot::expectedCostNok, COST_SCALE);
-            if (bestCost == null || cost.compareTo(bestCost) < 0) {
-                bestCost = cost;
-                bestSlots = slots;
-                bestStart = candidate;
-            }
+            windows.add(new Window(candidate, candidate.plus(chargingDuration), slots,
+                    sum(slots, ChargingPlanSlot::expectedCostNok, COST_SCALE)));
         }
 
-        if (bestSlots == null) {
-            return new OptimizationResult.Infeasible(OptimizationResult.Reason.NO_CONTINUOUS_WINDOW,
+        if (windows.isEmpty()) {
+            return new ChargingCandidatesResult.Infeasible(OptimizationResult.Reason.NO_CONTINUOUS_WINDOW,
                     "No gap-free run of stored prices is long enough to charge within the window.");
         }
 
-        BigDecimal expectedEnergy = sum(bestSlots, ChargingPlanSlot::plannedEnergyKwh, ENERGY_SCALE);
-
         List<ChargingPlanSlot> immediateSlots =
                 buildSlots(earliestStart, earliestStart.plus(chargingDuration), deliveredPowerKw, prices);
+        BigDecimal cheapestCost = windows.stream().map(Window::cost).min(Comparator.naturalOrder()).orElseThrow();
         BigDecimal baselineCost = immediateSlots != null
                 ? sum(immediateSlots, ChargingPlanSlot::expectedCostNok, COST_SCALE)
-                : bestCost;
+                : cheapestCost;
 
-        return new OptimizationResult.Success(
-                evSnapshot,
+        windows.sort(Comparator.comparing(Window::cost).thenComparing(window -> window.start().toInstant()));
+
+        List<ChargingCandidate> candidates = new ArrayList<>();
+        Set<String> seenWindows = new HashSet<>();
+        int rank = 1;
+        for (Window window : windows) {
+            if (!seenWindows.add(window.start().toInstant() + "|" + window.end().toInstant())) {
+                continue; // a different breakpoint that lands on an already-seen window
+            }
+            candidates.add(new ChargingCandidate(
+                    rank++,
+                    toDisplayZone(window.start()),
+                    toDisplayZone(window.end()),
+                    sum(window.slots(), ChargingPlanSlot::plannedEnergyKwh, ENERGY_SCALE),
+                    window.cost(),
+                    baselineCost,
+                    baselineCost.subtract(window.cost()),
+                    window.slots()));
+        }
+
+        return new ChargingCandidatesResult.Feasible(
                 requiredEnergyKwh.setScale(ENERGY_SCALE, RoundingMode.HALF_UP),
                 deliveredPowerKw.setScale(ENERGY_SCALE, RoundingMode.HALF_UP),
                 durationMinutes,
-                toDisplayZone(bestStart),
-                toDisplayZone(bestStart.plus(chargingDuration)),
-                expectedEnergy,
-                bestCost,
-                baselineCost,
-                baselineCost.subtract(bestCost),
-                bestSlots);
+                candidates);
+    }
+
+    /**
+     * The single cheapest continuous window, in the legacy {@link OptimizationResult} shape. Retained
+     * so existing calculator/orchestration tests keep their exact assertions; new code calls
+     * {@link #calculateCandidates}.
+     */
+    public OptimizationResult optimize(EvSnapshot evSnapshot,
+                                       BigDecimal requiredEnergyKwh,
+                                       BigDecimal efficiency,
+                                       OffsetDateTime earliestStart,
+                                       OffsetDateTime deadline,
+                                       List<PricePoint> prices) {
+
+        ChargingCandidatesResult result =
+                calculateCandidates(evSnapshot, requiredEnergyKwh, efficiency, earliestStart, deadline, prices);
+        if (result instanceof ChargingCandidatesResult.Infeasible infeasible) {
+            return new OptimizationResult.Infeasible(infeasible.reason(), infeasible.detail());
+        }
+
+        ChargingCandidatesResult.Feasible feasible = (ChargingCandidatesResult.Feasible) result;
+        ChargingCandidate best = feasible.candidates().get(0);
+        return new OptimizationResult.Success(
+                evSnapshot,
+                feasible.calculatedEnergyKwh(),
+                feasible.effectiveChargingPowerKw(),
+                feasible.estimatedDurationMinutes(),
+                best.recommendedStartAt(),
+                best.recommendedEndAt(),
+                best.expectedEnergyKwh(),
+                best.estimatedCostNok(),
+                best.baselineCostNok(),
+                best.expectedSavingsNok(),
+                best.slots());
+    }
+
+    /** A feasible window before it is turned into a ranked {@link ChargingCandidate}. */
+    private record Window(OffsetDateTime start, OffsetDateTime end, List<ChargingPlanSlot> slots, BigDecimal cost) {
     }
 
     /**

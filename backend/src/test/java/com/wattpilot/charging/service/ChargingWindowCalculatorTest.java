@@ -1,5 +1,7 @@
 package com.wattpilot.charging.service;
 
+import com.wattpilot.charging.dto.ChargingCandidate;
+import com.wattpilot.charging.dto.ChargingCandidatesResult;
 import com.wattpilot.charging.dto.ChargingPlanSlot;
 import com.wattpilot.charging.dto.EvSnapshot;
 import com.wattpilot.charging.dto.OptimizationResult;
@@ -219,6 +221,61 @@ class ChargingWindowCalculatorTest {
         assertThat(success.slots()).hasSize(1);
         assertThat(success.slots().get(0).plannedEnergyKwh()).isEqualByComparingTo("20.00");
         assertThat(success.estimatedCostNok()).isEqualByComparingTo("2.0000");
+    }
+
+    @Test
+    void calculateCandidatesReturnsEveryFeasibleWindowRankedCheapestFirst() {
+        ChargingCandidatesResult result = calculator.calculateCandidates(
+                ev("10", "10"),
+                new BigDecimal("18"), // 18 / 9 = 2 hours
+                EFFICIENCY,
+                at("18:00"),
+                at("23:00"),
+                hourly("18:00", "1.00", "0.90", "0.80", "0.70", "0.60"));
+
+        List<ChargingCandidate> candidates = feasible(result).candidates();
+        assertThat(candidates).extracting(ChargingCandidate::rank).containsExactly(1, 2, 3, 4);
+        assertThat(candidates.get(0).recommendedStartAt()).isEqualTo(at("21:00")); // cheapest: 0.70 + 0.60
+        assertThat(candidates.get(0).estimatedCostNok()).isEqualByComparingTo("13.0000");
+        assertThat(candidates).isSortedAccordingTo(
+                (a, b) -> a.estimatedCostNok().compareTo(b.estimatedCostNok()));
+        assertThat(candidates.get(0).expectedSavingsNok())
+                .isEqualByComparingTo(candidates.get(0).baselineCostNok().subtract(candidates.get(0).estimatedCostNok()));
+    }
+
+    @Test
+    void calculateCandidatesListsEachDistinctWindowOnceEvenWhenBreakpointsCoincide() {
+        // earliestStart, latestStart and a price boundary all land on 18:00 -> one window, listed once.
+        ChargingCandidatesResult result = calculator.calculateCandidates(
+                ev("10", "10"),
+                new BigDecimal("18"),
+                EFFICIENCY,
+                at("18:00"),
+                at("20:00"),
+                hourly("18:00", "0.50", "0.50"));
+
+        assertThat(feasible(result).candidates()).hasSize(1);
+        assertThat(feasible(result).candidates().get(0).recommendedStartAt()).isEqualTo(at("18:00"));
+        assertThat(feasible(result).candidates().get(0).recommendedEndAt()).isEqualTo(at("20:00"));
+    }
+
+    @Test
+    void calculateCandidatesReportsTheSameInfeasibleReasonsAsOptimize() {
+        ChargingCandidatesResult tooSoon = calculator.calculateCandidates(
+                ev("10", "10"), new BigDecimal("22.5"), EFFICIENCY, at("18:00"), at("20:00"),
+                hourly("18:00", "0.50", "0.50", "0.50"));
+        assertThat(((ChargingCandidatesResult.Infeasible) tooSoon).reason())
+                .isEqualTo(OptimizationResult.Reason.DEADLINE_TOO_SOON);
+
+        ChargingCandidatesResult noPrices = calculator.calculateCandidates(
+                ev("10", "10"), new BigDecimal("9"), EFFICIENCY, at("18:00"), at("23:00"), List.of());
+        assertThat(((ChargingCandidatesResult.Infeasible) noPrices).reason())
+                .isEqualTo(OptimizationResult.Reason.INSUFFICIENT_PRICE_DATA);
+    }
+
+    private static ChargingCandidatesResult.Feasible feasible(ChargingCandidatesResult result) {
+        assertThat(result).isInstanceOf(ChargingCandidatesResult.Feasible.class);
+        return (ChargingCandidatesResult.Feasible) result;
     }
 
     private static OptimizationResult.Success success(OptimizationResult result) {

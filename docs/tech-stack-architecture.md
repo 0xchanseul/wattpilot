@@ -136,32 +136,38 @@ V1 supports **continuous charging only**. The optimizer selects one contiguous c
 
 The selected charging window may internally consist of multiple hourly electricity-price slots, but those slots must be consecutive.
 
-The optimization flow is:
+The flow has two steps — a non-persisting preview and a persisting confirm — over one shared calculation:
 
 ```text
 Charging Requirements
         ↓
-Calculate Required Energy
+Calculate Required Energy → Effective Charging Power → Required Charging Duration
         ↓
-Calculate Effective Charging Power
+Enumerate every feasible continuous window, cost each one
         ↓
-Calculate Required Charging Duration
+──────────────── POST /charging-plans/preview ────────────────
+Rank by cost, return up to 3 candidates (nothing persisted)
+  no feasible window → 422 (CHARGING_DEADLINE_TOO_SOON / CHARGING_PRICE_DATA_INSUFFICIENT /
+                            CHARGING_NO_CONTINUOUS_WINDOW)
+        ↓  (user picks one candidate)
+──────────────── POST /charging-schedules ────────────────────
+Re-run the calculation against the latest prices
+  match the pick against a current candidate → 409 CHARGING_CANDIDATE_UNAVAILABLE if gone
+  EV already has an overlapping active schedule → 409 CHARGING_SCHEDULE_CONFLICT
         ↓
-Evaluate Available Continuous Windows
+Persist, in ONE transaction:
+  1 charging_plans row (SUCCEEDED)  +  its charging_plan_slots  +  1 charging_schedules row (CREATED)
         ↓
-Feasible continuous window found?
-        ├─ Yes → Select Lowest-Cost Continuous Window → Persist ChargingPlan (SUCCEEDED) → 201
-        └─ No  → Persist ChargingPlan (FAILED, failure_reason) → 422
+201 with the schedule
 ```
 
-A **charging plan** represents the result of a single optimization attempt, not an execution state. `charging_plans.status` is limited to `SUCCEEDED` and `FAILED`:
+The **calculation core** (`ChargingWindowCalculator`, pure; `ChargingOptimizationService`, orchestration) is shared: the preview and the confirm run identical code with no DB side effects. Only `ChargingScheduleService` writes.
 
-- **SUCCEEDED** — a feasible continuous window was found. All recommendation fields (`recommendedStartAt`, `recommendedEndAt`, `expectedEnergyKwh`, `estimatedCostNok`, ...) are populated, and the API returns `201 Created` with the plan.
-- **FAILED** — the request was valid but no feasible plan could be produced (e.g. insufficient time before the deadline, the energy requirement cannot be met, or no continuous slot is available). Recommendation fields are `NULL` and `failure_reason` records why. The API returns `422 Unprocessable Entity` instead of a `ChargingPlan`, so the success response schema never needs nullable recommendation fields.
+A **charging plan** is the recommendation for the one candidate the user confirmed. `charging_plans.status` is `SUCCEEDED` for every plan the flow writes. `FAILED` stays a valid schema/DB value (the CHECK constraints support it) but is not written — an infeasible preview is simply a 422 and persists nothing. Unexpected system failures are ordinary `5xx` responses and are not persisted.
 
-FAILED attempts are kept in `charging_plans` for internal record-keeping only; `GET /charging-plans` and `GET /charging-plans/{planId}` only ever return SUCCEEDED plans. Unexpected system failures (unhandled exceptions, database errors) are handled as ordinary `5xx` responses and are not required to be persisted as a `charging_plans` row.
+`GET /charging-plans` and `GET /charging-plans/{planId}` return the caller's stored (SUCCEEDED) plans.
 
-A **charging schedule** is created only after the user confirms a SUCCEEDED plan. Reservation and execution lifecycle (`CREATED`, `WAITING`, `IN_PROGRESS`, `COMPLETED`, `CANCELLED`, `FAILED`) belongs entirely to `charging_schedules` / `ScheduleStatus`, not to `charging_plans`.
+A **charging schedule** is the execution booking for a plan, created in the same transaction as the plan. The `charging_schedules` table has no `user_id` / `ev_id`; ownership and the overlap check reach the EV through `charging_plan_id → charging_plans`. Reservation/execution lifecycle (`CREATED`, `WAITING`, `IN_PROGRESS`, `COMPLETED`, `CANCELLED`, `FAILED`) belongs to `charging_schedules` / `ScheduleStatus`. A confirm locks the EV row for the transaction so two concurrent confirms for the same EV cannot both pass the overlap check.
 
 # Deployment Architecture
 

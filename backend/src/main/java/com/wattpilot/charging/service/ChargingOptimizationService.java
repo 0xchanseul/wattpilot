@@ -1,6 +1,7 @@
 package com.wattpilot.charging.service;
 
 import com.wattpilot.charging.ChargingProperties;
+import com.wattpilot.charging.dto.ChargingCandidatesResult;
 import com.wattpilot.charging.dto.EvSnapshot;
 import com.wattpilot.charging.dto.OptimizationCommand;
 import com.wattpilot.charging.dto.OptimizationResult;
@@ -21,14 +22,15 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 
 /**
- * Turns a charging request into a recommended continuous charging window.
+ * Turns a charging request into feasible charging-window candidates.
  *
  * <p>Verifies EV ownership, derives the energy target from the battery percentages, loads the stored
- * prices for the window and hands the pure arithmetic to {@link ChargingWindowCalculator}.
+ * prices for the window and hands the pure arithmetic to {@link ChargingWindowCalculator}. It never
+ * persists anything: the preview reads the candidates directly, and the scheduler re-runs this
+ * calculation before saving the one candidate the user confirmed.
  *
- * <p>Current V1 step: the result is returned only, never persisted. Malformed input is rejected with
- * a {@link BusinessException}; a well-formed request that simply cannot be satisfied comes back as
- * {@link OptimizationResult.Infeasible}.
+ * <p>Malformed input is rejected with a {@link BusinessException}; a well-formed request that simply
+ * cannot be satisfied comes back as {@link ChargingCandidatesResult.Infeasible}.
  */
 @Service
 @Transactional(readOnly = true)
@@ -55,11 +57,55 @@ public class ChargingOptimizationService {
         this.clock = clock;
     }
 
+    /**
+     * All feasible continuous charging windows for the request, ranked cheapest first. The optional
+     * {@code ev} is used when the caller has already loaded (and possibly locked) the EV row; passing
+     * {@code null} makes this method load it via the ownership check itself.
+     */
+    public ChargingCandidatesResult calculateCandidates(OptimizationCommand command, Ev ev) {
+        Inputs inputs = resolveInputs(command, ev);
+        return calculator.calculateCandidates(inputs.evSnapshot(), inputs.requiredEnergyKwh(),
+                chargingProperties.efficiency(), inputs.earliestStart(), inputs.deadline(), inputs.prices());
+    }
+
+    public ChargingCandidatesResult calculateCandidates(OptimizationCommand command) {
+        return calculateCandidates(command, null);
+    }
+
+    /**
+     * The single cheapest window in the legacy {@link OptimizationResult} shape. Retained for the
+     * existing orchestration tests; production paths use {@link #calculateCandidates}.
+     */
     public OptimizationResult optimize(OptimizationCommand command) {
-        OffsetDateTime now = OffsetDateTime.now(clock).truncatedTo(ChronoUnit.MINUTES);
+        Inputs inputs = resolveInputs(command, null);
+        return calculator.optimize(inputs.evSnapshot(), inputs.requiredEnergyKwh(),
+                chargingProperties.efficiency(), inputs.earliestStart(), inputs.deadline(), inputs.prices());
+    }
+
+    /** The effective charging window the calculator uses: {@code now} unless a later start is requested. */
+    public OffsetDateTime resolveEarliestStart(OffsetDateTime requestedEarliestStartAt) {
+        return earliestStart(requestedEarliestStartAt, now());
+    }
+
+    public OffsetDateTime now() {
+        return OffsetDateTime.now(clock).truncatedTo(ChronoUnit.MINUTES);
+    }
+
+    /** Maps an infeasible calculation onto the matching 422 error code, preserving the detail message. */
+    public static BusinessException toBusinessException(ChargingCandidatesResult.Infeasible infeasible) {
+        ErrorCode errorCode = switch (infeasible.reason()) {
+            case DEADLINE_TOO_SOON -> ErrorCode.CHARGING_DEADLINE_TOO_SOON;
+            case INSUFFICIENT_PRICE_DATA -> ErrorCode.CHARGING_PRICE_DATA_INSUFFICIENT;
+            case NO_CONTINUOUS_WINDOW -> ErrorCode.CHARGING_NO_CONTINUOUS_WINDOW;
+        };
+        return new BusinessException(errorCode, infeasible.detail());
+    }
+
+    private Inputs resolveInputs(OptimizationCommand command, Ev preloadedEv) {
+        OffsetDateTime now = now();
         validate(command, now);
 
-        Ev ev = evService.getActiveOwnedEv(command.userId(), command.evId());
+        Ev ev = preloadedEv != null ? preloadedEv : evService.getActiveOwnedEv(command.userId(), command.evId());
 
         BigDecimal requiredEnergyKwh = ev.getBatteryCapacityKwh()
                 .multiply(command.targetBatteryPercent().subtract(command.currentBatteryPercent()))
@@ -71,8 +117,7 @@ public class ChargingOptimizationService {
         List<PricePoint> prices =
                 electricityPriceService.getPricePointsInWindow(command.priceArea(), earliestStart, deadline);
 
-        return calculator.optimize(EvSnapshot.from(ev), requiredEnergyKwh,
-                chargingProperties.efficiency(), earliestStart, deadline, prices);
+        return new Inputs(EvSnapshot.from(ev), requiredEnergyKwh, earliestStart, deadline, prices);
     }
 
     private void validate(OptimizationCommand command, OffsetDateTime now) {
@@ -110,5 +155,9 @@ public class ChargingOptimizationService {
         if (!condition) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, message);
         }
+    }
+
+    private record Inputs(EvSnapshot evSnapshot, BigDecimal requiredEnergyKwh, OffsetDateTime earliestStart,
+                          OffsetDateTime deadline, List<PricePoint> prices) {
     }
 }

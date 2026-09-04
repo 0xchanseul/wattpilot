@@ -253,51 +253,45 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
-  /charging-plans:
+  /charging-plans/preview:
     post:
       tags: [Charging Optimization]
-      summary: Calculate an optimized charging plan
+      summary: Preview optimized charging candidates
       description: |
-        Calculates an optimal charging plan for the given requirements and persists the
-        attempt. On success, the plan is stored as SUCCEEDED and returned with 201.
-        When the request is valid but no feasible continuous charging window exists
-        (e.g. insufficient time before the deadline, energy requirement cannot be met,
-        or no continuous slot is available), the attempt is stored as FAILED and this
-        endpoint returns 422 instead of a ChargingPlan.
-      operationId: createChargingPlan
+        Calculates the cheapest continuous charging windows for the given requirements and returns
+        up to three of them, ordered by cost. **Nothing is persisted** — no charging_plans,
+        charging_plan_slots or charging_schedules row is created or changed. The user picks one
+        candidate and confirms it with `POST /charging-schedules`.
+
+        Fewer than three candidates are returned when fewer feasible windows exist. When the request
+        is valid but no window is feasible at all (not enough time before the deadline, no stored
+        prices for the window, or no gap-free run of prices long enough), the endpoint returns 422
+        with a stable `code` (`CHARGING_DEADLINE_TOO_SOON`, `CHARGING_PRICE_DATA_INSUFFICIENT` or
+        `CHARGING_NO_CONTINUOUS_WINDOW`).
+      operationId: previewChargingPlan
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/CreateChargingPlanRequest' }
+            schema: { $ref: '#/components/schemas/CreateChargingPlanPreviewRequest' }
       responses:
-        '201':
-          description: Plan calculated successfully (SUCCEEDED)
-          headers:
-            Location:
-              schema: { type: string, example: /api/v1/charging-plans/1 }
+        '200':
+          description: Ranked charging candidates (not persisted)
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/ChargingPlan' }
+              schema: { $ref: '#/components/schemas/ChargingPlanPreviewResponse' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
-        '422':
-          description: >-
-            The request was valid but no feasible continuous charging window exists. The attempt is
-            persisted as a FAILED plan and its id and reason are returned so the client can show the
-            user why no recommendation was produced.
-          content:
-            application/problem+json:
-              schema: { $ref: '#/components/schemas/ChargingPlanInfeasibleResponse' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+
+  /charging-plans:
     get:
       tags: [Charging Optimization]
       summary: List my charging plans
       description: |
-        Only SUCCEEDED plans are returned. FAILED optimization attempts are kept
-        internally for record-keeping but are not exposed through this API, so
-        filtering by status=FAILED always returns an empty page.
+        Charging plans that were persisted by confirming a schedule. Every stored plan is SUCCEEDED
+        (the preview flow never stores a FAILED plan), so `status=FAILED` returns an empty page.
       operationId: listChargingPlans
       parameters:
         - $ref: '#/components/parameters/Page'
@@ -323,9 +317,8 @@ paths:
       tags: [Charging Optimization]
       summary: Get a charging plan
       description: |
-        Only SUCCEEDED plans are retrievable. A FAILED optimization attempt's id is
-        never returned to clients (see POST /charging-plans), so it cannot be looked
-        up here; requesting an unknown or FAILED id returns 404.
+        Returns a persisted (SUCCEEDED) charging plan owned by the caller. An unknown id, or one
+        owned by another account, returns 404.
       operationId: getChargingPlan
       responses:
         '200':
@@ -339,16 +332,35 @@ paths:
   /charging-schedules:
     post:
       tags: [Scheduler]
-      summary: Create a schedule from a charging plan
+      summary: Confirm a previewed candidate as a charging schedule
+      description: |
+        Confirms one candidate the user picked from `POST /charging-plans/preview`.
+
+        The request carries the original charging conditions and the selected candidate's start and
+        end instants — never its cost, energy or slots. The server re-runs the calculation against
+        the latest prices, finds the candidate whose window equals `selectedStartAt`/`selectedEndAt`,
+        and persists **that one candidate only** as a charging_plans row, its charging_plan_slots,
+        and one charging_schedules row, in a single transaction. Candidates the user did not pick are
+        never stored.
+
+        - 422 (stable `code`, as for the preview) when the recomputed request is infeasible.
+        - 409 `CHARGING_CANDIDATE_UNAVAILABLE` when the picked window is no longer among the current
+          candidates (prices moved, or its start time has passed) — the client should request a
+          fresh preview.
+        - 409 `CHARGING_SCHEDULE_CONFLICT` when the EV already has an active schedule overlapping the
+          selected window.
       operationId: createChargingSchedule
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/CreateScheduleRequest' }
+            schema: { $ref: '#/components/schemas/CreateChargingScheduleRequest' }
       responses:
         '201':
           description: Schedule created
+          headers:
+            Location:
+              schema: { type: string, example: /api/v1/charging-schedules/1 }
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ChargingSchedule' }
@@ -356,28 +368,17 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
     get:
       tags: [Scheduler]
-      summary: List my schedules
+      summary: List my charging schedules
       operationId: listChargingSchedules
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/Size'
-        - name: evId
-          in: query
-          schema: { type: integer, format: int64, minimum: 1 }
-        - name: status
-          in: query
-          schema: { $ref: '#/components/schemas/ScheduleStatus' }
-        - name: from
-          in: query
-          schema: { type: string, format: date-time }
-        - name: to
-          in: query
-          schema: { type: string, format: date-time }
       responses:
         '200':
-          description: Schedule page
+          description: Schedule page, newest first
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ChargingSchedulePage' }
@@ -388,7 +389,7 @@ paths:
       - $ref: '#/components/parameters/ScheduleId'
     get:
       tags: [Scheduler]
-      summary: Get a schedule
+      summary: Get a charging schedule
       operationId: getChargingSchedule
       responses:
         '200':
@@ -398,15 +399,6 @@ paths:
               schema: { $ref: '#/components/schemas/ChargingSchedule' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
-    delete:
-      tags: [Scheduler]
-      summary: Cancel a schedule
-      operationId: cancelChargingSchedule
-      responses:
-        '204': { description: Schedule cancelled }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
 
   /mock-charging/sessions:
     post:
@@ -711,9 +703,10 @@ components:
     ChargingPlanStatus:
       type: string
       description: |
-        Result of a single optimization attempt. This is not a reservation or
-        execution state — that lifecycle is tracked separately by ScheduleStatus
-        on ChargingSchedule.
+        Outcome of a stored charging plan. This is not a reservation or execution state — that
+        lifecycle is tracked by ScheduleStatus on ChargingSchedule. Every plan persisted by the
+        current flow is SUCCEEDED; FAILED remains a valid value at the schema/DB level but is not
+        written (an infeasible preview is never persisted).
       enum: [SUCCEEDED, FAILED]
 
     ScheduleStatus:
@@ -828,19 +821,91 @@ components:
           type: array
           items: { $ref: '#/components/schemas/ElectricityPrice' }
 
-    CreateChargingPlanRequest:
+    CreateChargingPlanPreviewRequest:
       type: object
       required: [evId, currentBatteryPercent, targetBatteryPercent, requiredCompletionAt, priceArea]
+      description: >-
+        Charging conditions for a preview. The window always starts at "now"; there is no
+        earliestStartAt in this flow.
       properties:
         evId: { type: integer, format: int64, minimum: 1, example: 1 }
-        currentBatteryPercent: { type: number, format: double, minimum: 0, maximum: 100, example: 25 }
+        currentBatteryPercent: { type: number, format: double, minimum: 0, maximum: 100, example: 30 }
         targetBatteryPercent: { type: number, format: double, exclusiveMinimum: true, minimum: 0, maximum: 100, example: 80 }
-        requiredCompletionAt: { type: string, format: date-time, example: '2026-08-24T07:00:00+02:00' }
-        earliestStartAt:
-          type: string
-          format: date-time
-          description: Defaults to current time.
+        requiredCompletionAt: { type: string, format: date-time, example: '2026-09-04T07:00:00+02:00' }
         priceArea: { $ref: '#/components/schemas/PriceArea' }
+
+    ChargingPlanPreviewResponse:
+      type: object
+      description: >-
+        Ranked charging candidates for a set of conditions. Not persisted. calculatedEnergyKwh,
+        effectiveChargingPowerKw and estimatedDurationMinutes are the same for every candidate.
+      required:
+        - evId
+        - currentBatteryPercent
+        - targetBatteryPercent
+        - requiredCompletionAt
+        - priceArea
+        - calculatedEnergyKwh
+        - effectiveChargingPowerKw
+        - estimatedDurationMinutes
+        - candidates
+      properties:
+        evId: { type: integer, format: int64, minimum: 1, example: 1 }
+        currentBatteryPercent: { type: number, format: double }
+        targetBatteryPercent: { type: number, format: double }
+        requiredCompletionAt: { type: string, format: date-time }
+        priceArea: { $ref: '#/components/schemas/PriceArea' }
+        calculatedEnergyKwh:
+          type: number
+          format: double
+          description: Battery-side energy to add (target). Charging efficiency is not applied here.
+        effectiveChargingPowerKw:
+          type: number
+          format: double
+          exclusiveMinimum: true
+          minimum: 0
+          example: 7.4
+          description: >-
+            min(EV max AC charging power, charger power), before the charging efficiency is applied;
+            efficiency only lengthens estimatedDurationMinutes.
+        estimatedDurationMinutes: { type: integer, minimum: 1 }
+        candidates:
+          type: array
+          maxItems: 3
+          description: Feasible windows, cheapest first.
+          items: { $ref: '#/components/schemas/ChargingCandidate' }
+
+    ChargingCandidate:
+      type: object
+      required:
+        - rank
+        - recommendedStartAt
+        - recommendedEndAt
+        - expectedEnergyKwh
+        - estimatedCostNok
+        - baselineCostNok
+        - expectedSavingsNok
+        - slots
+      properties:
+        rank: { type: integer, minimum: 1, description: 1 is the cheapest. }
+        recommendedStartAt: { type: string, format: date-time }
+        recommendedEndAt: { type: string, format: date-time }
+        expectedEnergyKwh:
+          type: number
+          format: double
+          description: >-
+            Grid-side energy over this window (calculatedEnergyKwh / efficiency); equals the sum of
+            the slot plannedEnergyKwh values.
+        estimatedCostNok: { type: number, format: double }
+        baselineCostNok:
+          type: number
+          format: double
+          description: Cost of charging immediately from "now"; the same for every candidate.
+        expectedSavingsNok: { type: number, format: double, description: baselineCostNok - estimatedCostNok. }
+        slots:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/ChargingPlanSlot' }
 
     ChargingPlanSlot:
       type: object
@@ -922,7 +987,7 @@ components:
         baselineCostNok:
           type: number
           format: double
-          description: Cost of charging immediately from earliestStartAt.
+          description: Cost of charging immediately from the plan's earliestStartAt.
         expectedSavingsNok: { type: number, format: double }
         slots:
           type: array
@@ -931,37 +996,45 @@ components:
           items: { $ref: '#/components/schemas/ChargingPlanSlot' }
         createdAt: { type: string, format: date-time }
 
-    ChargingPlanInfeasibleResponse:
+    CreateChargingScheduleRequest:
+      type: object
+      required:
+        - evId
+        - currentBatteryPercent
+        - targetBatteryPercent
+        - requiredCompletionAt
+        - priceArea
+        - selectedStartAt
+        - selectedEndAt
       description: >-
-        problem+json body for POST /charging-plans when the request is valid but no feasible charging
-        window exists. Carries the shared error fields plus the persisted FAILED plan's id and reason.
-      type: object
-      required: [timestamp, status, code, message, path, traceId, chargingPlanId, planStatus, reasonCode, failureReason]
+        The original preview conditions plus the picked candidate's window. The server never trusts a
+        client-sent cost, energy or slot list; only these fields are authoritative input.
       properties:
-        timestamp: { type: string, format: date-time }
-        status: { type: integer, example: 422 }
-        code: { type: string, example: CHARGING_PLAN_INFEASIBLE }
-        message: { type: string, example: No feasible charging window could be calculated for the request. }
-        path: { type: string, example: /api/v1/charging-plans }
-        traceId: { type: string, example: 7b9f52e8a61b4a74 }
-        chargingPlanId: { type: integer, format: int64, minimum: 1, example: 1 }
-        planStatus: { type: string, enum: [FAILED] }
-        reasonCode:
-          type: string
-          enum: [DEADLINE_TOO_SOON, INSUFFICIENT_PRICE_DATA, NO_CONTINUOUS_WINDOW]
-        failureReason:
-          type: string
-          example: Charging needs 150 minutes but only 120 are available before the deadline.
-
-    CreateScheduleRequest:
-      type: object
-      required: [planId]
-      properties:
-        planId: { type: integer, format: int64, minimum: 1, example: 1 }
+        evId: { type: integer, format: int64, minimum: 1, example: 1 }
+        currentBatteryPercent: { type: number, format: double, minimum: 0, maximum: 100, example: 30 }
+        targetBatteryPercent: { type: number, format: double, exclusiveMinimum: true, minimum: 0, maximum: 100, example: 80 }
+        requiredCompletionAt: { type: string, format: date-time, example: '2026-09-04T07:00:00+02:00' }
+        priceArea: { $ref: '#/components/schemas/PriceArea' }
+        selectedStartAt: { type: string, format: date-time, example: '2026-09-04T00:00:00+02:00' }
+        selectedEndAt: { type: string, format: date-time, example: '2026-09-04T04:33:00+02:00' }
 
     ChargingSchedule:
       type: object
-      required: [id, planId, evId, status, scheduledStartAt, scheduledEndAt, expectedEnergyKwh, estimatedCostNok, slots, createdAt, updatedAt]
+      required:
+        - id
+        - planId
+        - evId
+        - status
+        - scheduledStartAt
+        - scheduledEndAt
+        - calculatedEnergyKwh
+        - expectedEnergyKwh
+        - estimatedCostNok
+        - baselineCostNok
+        - expectedSavingsNok
+        - slots
+        - createdAt
+        - updatedAt
       properties:
         id: { type: integer, format: int64, minimum: 1, example: 1 }
         planId: { type: integer, format: int64, minimum: 1, example: 1 }
@@ -969,10 +1042,15 @@ components:
         status: { $ref: '#/components/schemas/ScheduleStatus' }
         scheduledStartAt: { type: string, format: date-time }
         scheduledEndAt: { type: string, format: date-time }
-        expectedEnergyKwh: { type: number, format: double }
+        calculatedEnergyKwh: { type: number, format: double, description: Battery-side energy to add. }
+        expectedEnergyKwh: { type: number, format: double, description: Grid-side energy drawn (includes efficiency loss). }
         estimatedCostNok: { type: number, format: double }
+        baselineCostNok: { type: number, format: double, description: Cost of charging immediately from "now". }
+        expectedSavingsNok: { type: number, format: double, description: baselineCostNok - estimatedCostNok. }
         slots:
           type: array
+          minItems: 1
+          description: The confirmed plan's price slots.
           items: { $ref: '#/components/schemas/ChargingPlanSlot' }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }

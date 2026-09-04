@@ -11,21 +11,22 @@ import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 
 /**
- * Matches the {@code CreateChargingPlanRequest} schema in docs/openapi.yaml.
+ * Input for {@code POST /charging-schedules}: the original charging conditions plus the start and end
+ * of the candidate the user picked from a preview.
  *
- * <p>Bean Validation covers the per-field format and range only. The cross-field and temporal rules
- * ({@code targetBatteryPercent > currentBatteryPercent}, {@code requiredCompletionAt} in the future,
- * {@code earliestStartAt} before {@code requiredCompletionAt}) are business rules checked in the
- * service against the injected {@code Clock}.
+ * <p>The server never trusts a client-supplied cost, energy or slot list. It re-runs the calculation
+ * from these conditions, finds the candidate whose window equals {@code selectedStartAt} /
+ * {@code selectedEndAt}, and persists that one with server-computed figures.
  */
-public record CreateChargingPlanRequest(
+public record CreateChargingScheduleRequest(
         @NotNull @Positive Long evId,
         @NotNull @DecimalMin("0") @DecimalMax("100") @Digits(integer = 3, fraction = 2)
         BigDecimal currentBatteryPercent,
         @NotNull @DecimalMin(value = "0", inclusive = false) @DecimalMax("100") @Digits(integer = 3, fraction = 2)
         BigDecimal targetBatteryPercent,
         @NotNull OffsetDateTime requiredCompletionAt,
-        OffsetDateTime earliestStartAt,
-        @NotNull PriceArea priceArea
+        @NotNull PriceArea priceArea,
+        @NotNull OffsetDateTime selectedStartAt,
+        @NotNull OffsetDateTime selectedEndAt
 ) {
 }

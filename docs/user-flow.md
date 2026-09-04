@@ -20,16 +20,16 @@ flowchart TD
     H2 --> I
     H3 --> I
 
-    I --> J[Retrieve Hourly Electricity Prices]
+    I --> J[Preview API: Retrieve Hourly Prices]
     J --> K[Calculate Required Energy and Charging Duration]
-    K --> L[Find Cheapest Continuous Charging Window]
+    K --> L[Rank Continuous Charging Windows by Cost]
 
-    L --> M[Show Recommended Charging Plan]
+    L --> M[Show Up To 3 Candidates in a Modal - nothing saved]
 
-    M --> N{Confirm Plan?}
+    M --> N{Pick a candidate and confirm?}
 
-    N -- No --> H
-    N -- Yes --> O[Create Charging Schedule]
+    N -- No / change inputs --> H
+    N -- Yes --> O[Schedule API: Recalculate, Validate Pick, Persist Plan + Slots + Schedule]
 
     O --> P[Wait Until Scheduled Time]
     P --> Q[Execute Mock Charging]

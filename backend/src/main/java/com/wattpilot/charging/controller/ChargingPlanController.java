@@ -1,8 +1,10 @@
 package com.wattpilot.charging.controller;
 
+import com.wattpilot.charging.dto.ChargingPlanPreviewResponse;
 import com.wattpilot.charging.dto.ChargingPlanResponse;
-import com.wattpilot.charging.dto.CreateChargingPlanRequest;
+import com.wattpilot.charging.dto.CreateChargingPlanPreviewRequest;
 import com.wattpilot.charging.entity.ChargingPlanStatus;
+import com.wattpilot.charging.service.ChargingPlanPreviewService;
 import com.wattpilot.charging.service.ChargingPlanService;
 import com.wattpilot.common.response.PageResponse;
 import com.wattpilot.common.security.AuthenticatedUser;
@@ -22,26 +24,25 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.net.URI;
-
 @RestController
 @RequestMapping("/api/v1/charging-plans")
-@Tag(name = "Charging Optimization", description = "Charging plan optimization and calculated recommendations")
+@Tag(name = "Charging Optimization", description = "Charging plan preview and stored recommendations")
 public class ChargingPlanController {
 
+    private final ChargingPlanPreviewService previewService;
     private final ChargingPlanService chargingPlanService;
 
-    public ChargingPlanController(ChargingPlanService chargingPlanService) {
+    public ChargingPlanController(ChargingPlanPreviewService previewService, ChargingPlanService chargingPlanService) {
+        this.previewService = previewService;
         this.chargingPlanService = chargingPlanService;
     }
 
-    @Operation(summary = "Calculate an optimized charging plan")
-    @PostMapping
-    public ResponseEntity<ChargingPlanResponse> createChargingPlan(
+    @Operation(summary = "Preview optimized charging candidates")
+    @PostMapping("/preview")
+    public ResponseEntity<ChargingPlanPreviewResponse> previewChargingPlan(
             @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
-            @Valid @RequestBody CreateChargingPlanRequest request) {
-        ChargingPlanResponse plan = chargingPlanService.createPlan(authenticatedUser.userId(), request);
-        return ResponseEntity.created(URI.create("/api/v1/charging-plans/" + plan.id())).body(plan);
+            @Valid @RequestBody CreateChargingPlanPreviewRequest request) {
+        return ResponseEntity.ok(previewService.preview(authenticatedUser.userId(), request));
     }
 
     @Operation(summary = "List my charging plans")

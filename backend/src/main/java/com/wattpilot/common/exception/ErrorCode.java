@@ -34,11 +34,23 @@ public enum ErrorCode {
     // The from/to query window is empty or inverted: each bound parses, but the range cannot be served.
     INVALID_TIME_RANGE(HttpStatus.UNPROCESSABLE_CONTENT, "The 'to' timestamp must be after 'from'."),
 
-    // A charging plan that does not exist, is owned by another account, or is a FAILED optimization
-    // attempt: all reported the same way so the API cannot be used to probe plan ids.
+    // A charging plan or schedule that does not exist or is owned by another account: both reported
+    // the same way so the API cannot be used to probe ids.
     CHARGING_PLAN_NOT_FOUND(HttpStatus.NOT_FOUND, "Charging plan not found."),
-    // The charging-plan request was valid but no feasible continuous charging window could be produced.
-    CHARGING_PLAN_INFEASIBLE(HttpStatus.UNPROCESSABLE_CONTENT, "No feasible charging window could be calculated for the request.");
+    CHARGING_SCHEDULE_NOT_FOUND(HttpStatus.NOT_FOUND, "Charging schedule not found."),
+
+    // A well-formed charging request that cannot produce any recommendation. The three cases stay
+    // distinct so the client can pick the right guidance ("choose a later deadline" vs "prices for
+    // that period aren't available yet").
+    CHARGING_DEADLINE_TOO_SOON(HttpStatus.UNPROCESSABLE_CONTENT, "There is not enough time before the deadline to reach the target charge."),
+    CHARGING_PRICE_DATA_INSUFFICIENT(HttpStatus.UNPROCESSABLE_CONTENT, "Electricity prices are not available for the requested charging window."),
+    CHARGING_NO_CONTINUOUS_WINDOW(HttpStatus.UNPROCESSABLE_CONTENT, "No continuous charging window fits before the deadline."),
+
+    // The candidate the user picked from a preview is no longer among the windows the latest prices
+    // produce (prices changed, or its start time has since passed).
+    CHARGING_CANDIDATE_UNAVAILABLE(HttpStatus.CONFLICT, "The selected charging window is no longer available. Request a fresh preview."),
+    // The EV already has an active schedule overlapping the selected window.
+    CHARGING_SCHEDULE_CONFLICT(HttpStatus.CONFLICT, "This EV already has a charging schedule that overlaps the selected window.");
 
     private final HttpStatus status;
     private final String defaultMessage;

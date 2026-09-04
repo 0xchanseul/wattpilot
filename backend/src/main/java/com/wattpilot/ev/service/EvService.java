@@ -59,7 +59,22 @@ public class EvService {
      * a caller cannot probe an EV's existence or lifecycle state.
      */
     public Ev getActiveOwnedEv(Long userId, Long evId) {
-        Ev ev = getOwnedEv(userId, evId);
+        return requireActive(getOwnedEv(userId, evId));
+    }
+
+    /**
+     * Same as {@link #getActiveOwnedEv} but takes a row lock, so a caller in a write transaction (e.g.
+     * charging-schedule creation) serialises against other writers for the same EV. Must be called
+     * from within a transaction.
+     */
+    @Transactional
+    public Ev getActiveOwnedEvForUpdate(Long userId, Long evId) {
+        Ev ev = evRepository.findByIdAndUserIdForUpdate(evId, userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.EV_NOT_FOUND));
+        return requireActive(ev);
+    }
+
+    private static Ev requireActive(Ev ev) {
         if (!ev.isActive()) {
             throw new BusinessException(ErrorCode.EV_NOT_FOUND);
         }

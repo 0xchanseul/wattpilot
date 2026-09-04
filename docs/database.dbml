@@ -18,10 +18,15 @@ Enum price_provider {
   TIBBER
 }
 
-// charging_plans.status records the outcome of one optimization attempt. Stored as a
+// charging_plans.status records the outcome of a stored charging plan. Stored as a
 // CHECK-constrained varchar (like price_area), not a database enum type.
-//   SUCCEEDED - a feasible continuous window was found; recommendation fields are populated
-//   FAILED    - the request was valid but no window could be produced; only failure_reason is set
+//   SUCCEEDED - the confirmed candidate; all recommendation fields are populated
+//   FAILED    - reserved; the CHECK constraints still support it, but the preview/confirm flow
+//               never writes a FAILED row (an infeasible preview is not persisted)
+//
+// A charging_plans row is only ever written together with one charging_plan_slots set and one
+// charging_schedules row, in a single transaction, when the user confirms a previewed candidate.
+// The preview endpoint writes nothing.
 
 Enum charging_schedule_status {
   CREATED
@@ -207,6 +212,8 @@ Table charging_plan_slots {
 
 Table charging_schedules {
   id bigint [pk, increment]
+  // The owning user and EV are reached through charging_plan_id -> charging_plans; this table does
+  // not duplicate user_id / ev_id. The "same EV, overlapping active schedule" check joins via the plan.
   charging_plan_id bigint [not null, ref: > charging_plans.id]
 
   scheduled_start_at timestamptz [not null]

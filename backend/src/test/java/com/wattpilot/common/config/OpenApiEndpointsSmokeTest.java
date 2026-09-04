@@ -3,6 +3,7 @@ package com.wattpilot.common.config;
 import com.wattpilot.auth.repository.RefreshTokenRepository;
 import com.wattpilot.charging.repository.ChargingPlanRepository;
 import com.wattpilot.charging.repository.ChargingPlanSlotRepository;
+import com.wattpilot.charging.repository.ChargingScheduleRepository;
 import com.wattpilot.electricity.repository.ElectricityPriceRepository;
 import com.wattpilot.ev.repository.EvRepository;
 import com.wattpilot.user.repository.UserRepository;
@@ -48,6 +49,9 @@ class OpenApiEndpointsSmokeTest {
 
     @MockitoBean
     ChargingPlanSlotRepository chargingPlanSlotRepository;
+
+    @MockitoBean
+    ChargingScheduleRepository chargingScheduleRepository;
 
     @Test
     void apiDocsExposesConfiguredInfo() throws Exception {

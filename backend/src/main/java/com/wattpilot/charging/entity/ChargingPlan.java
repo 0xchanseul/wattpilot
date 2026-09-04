@@ -1,7 +1,7 @@
 package com.wattpilot.charging.entity;
 
+import com.wattpilot.charging.dto.ChargingCandidate;
 import com.wattpilot.charging.dto.EvSnapshot;
-import com.wattpilot.charging.dto.OptimizationResult;
 import com.wattpilot.common.PriceArea;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -147,33 +147,29 @@ public class ChargingPlan {
         this.defaultChargerPowerKw = evSnapshot.defaultChargerPowerKw();
     }
 
+    /**
+     * A succeeded plan for the candidate the user confirmed. {@code calculatedEnergyKwh},
+     * {@code effectiveChargingPowerKw} and {@code estimatedDurationMinutes} are shared across every
+     * candidate of the same request; the rest come from the chosen window.
+     */
     public static ChargingPlan succeeded(Long userId, Long evId, PriceArea priceArea,
                                          BigDecimal currentBatteryPercent, BigDecimal targetBatteryPercent,
                                          OffsetDateTime earliestStartAt, OffsetDateTime requiredCompletionAt,
-                                         OptimizationResult.Success result) {
-        ChargingPlan plan = new ChargingPlan(userId, evId, priceArea, currentBatteryPercent, targetBatteryPercent,
-                earliestStartAt, requiredCompletionAt, result.evSnapshot());
-        plan.status = ChargingPlanStatus.SUCCEEDED;
-        plan.calculatedEnergyKwh = result.calculatedEnergyKwh();
-        plan.effectiveChargingPowerKw = result.effectiveChargingPowerKw();
-        plan.estimatedDurationMinutes = result.estimatedDurationMinutes();
-        plan.recommendedStartAt = result.recommendedStartAt();
-        plan.recommendedEndAt = result.recommendedEndAt();
-        plan.expectedEnergyKwh = result.expectedEnergyKwh();
-        plan.estimatedCostNok = result.estimatedCostNok();
-        plan.baselineCostNok = result.baselineCostNok();
-        plan.expectedSavingsNok = result.expectedSavingsNok();
-        return plan;
-    }
-
-    public static ChargingPlan failed(Long userId, Long evId, PriceArea priceArea,
-                                      BigDecimal currentBatteryPercent, BigDecimal targetBatteryPercent,
-                                      OffsetDateTime earliestStartAt, OffsetDateTime requiredCompletionAt,
-                                      EvSnapshot evSnapshot, String failureReason) {
+                                         EvSnapshot evSnapshot,
+                                         BigDecimal calculatedEnergyKwh, BigDecimal effectiveChargingPowerKw,
+                                         int estimatedDurationMinutes, ChargingCandidate candidate) {
         ChargingPlan plan = new ChargingPlan(userId, evId, priceArea, currentBatteryPercent, targetBatteryPercent,
                 earliestStartAt, requiredCompletionAt, evSnapshot);
-        plan.status = ChargingPlanStatus.FAILED;
-        plan.failureReason = failureReason;
+        plan.status = ChargingPlanStatus.SUCCEEDED;
+        plan.calculatedEnergyKwh = calculatedEnergyKwh;
+        plan.effectiveChargingPowerKw = effectiveChargingPowerKw;
+        plan.estimatedDurationMinutes = estimatedDurationMinutes;
+        plan.recommendedStartAt = candidate.recommendedStartAt();
+        plan.recommendedEndAt = candidate.recommendedEndAt();
+        plan.expectedEnergyKwh = candidate.expectedEnergyKwh();
+        plan.estimatedCostNok = candidate.estimatedCostNok();
+        plan.baselineCostNok = candidate.baselineCostNok();
+        plan.expectedSavingsNok = candidate.expectedSavingsNok();
         return plan;
     }
 }
