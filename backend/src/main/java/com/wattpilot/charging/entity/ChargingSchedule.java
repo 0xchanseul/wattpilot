@@ -58,6 +58,18 @@ public class ChargingSchedule {
     @Column(name = "status", nullable = false, columnDefinition = "charging_schedule_status")
     private ChargingScheduleStatus status;
 
+    /**
+     * Consecutive transient execution errors since the last successful phase transition. Reset to 0
+     * whenever the schedule moves to {@link ChargingScheduleStatus#IN_PROGRESS} (a fresh budget for the
+     * completion attempt) and left at its final value on a terminal status, for audit purposes.
+     */
+    @Column(name = "retry_count", nullable = false)
+    private int retryCount;
+
+    /** Earliest time the scheduler may retry after a transient error. Null outside a backoff wait. */
+    @Column(name = "next_retry_at")
+    private OffsetDateTime nextRetryAt;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
@@ -73,7 +85,7 @@ public class ChargingSchedule {
         this.scheduledEndAt = scheduledEndAt;
         this.expectedEnergyKwh = expectedEnergyKwh;
         this.estimatedCostNok = estimatedCostNok;
-        this.status = ChargingScheduleStatus.CREATED;
+        this.status = ChargingScheduleStatus.WAITING;
     }
 
     public static ChargingSchedule create(Long chargingPlanId, OffsetDateTime scheduledStartAt,
@@ -81,5 +93,38 @@ public class ChargingSchedule {
                                           BigDecimal estimatedCostNok) {
         return new ChargingSchedule(chargingPlanId, scheduledStartAt, scheduledEndAt, expectedEnergyKwh,
                 estimatedCostNok);
+    }
+
+    /** The start or completion attempt succeeded; clears any retry bookkeeping from prior attempts. */
+    public void markInProgress() {
+        this.status = ChargingScheduleStatus.IN_PROGRESS;
+        clearRetryState();
+    }
+
+    public void markCompleted() {
+        this.status = ChargingScheduleStatus.COMPLETED;
+        clearRetryState();
+    }
+
+    /** A definitive business or system failure, or a missed execution window. Terminal. */
+    public void markFailed() {
+        this.status = ChargingScheduleStatus.FAILED;
+        clearRetryState();
+    }
+
+    /** Cancelled by the user while still {@link ChargingScheduleStatus#WAITING}. Terminal. */
+    public void markCancelled() {
+        this.status = ChargingScheduleStatus.CANCELLED;
+        clearRetryState();
+    }
+
+    /** A transient execution error, with attempts remaining: record it and back off before the next try. */
+    public void scheduleRetry(int retryCount, OffsetDateTime nextRetryAt) {
+        this.retryCount = retryCount;
+        this.nextRetryAt = nextRetryAt;
+    }
+
+    private void clearRetryState() {
+        this.nextRetryAt = null;
     }
 }

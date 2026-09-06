@@ -3,6 +3,7 @@ package com.wattpilot.charging.dto;
 import com.wattpilot.charging.entity.ChargingPlan;
 import com.wattpilot.charging.entity.ChargingSchedule;
 import com.wattpilot.charging.entity.ChargingScheduleStatus;
+import com.wattpilot.charging.entity.ChargingSession;
 import com.wattpilot.electricity.service.ElectricityPriceService;
 
 import java.math.BigDecimal;
@@ -13,7 +14,9 @@ import java.util.List;
 /**
  * Response for the charging-schedule endpoints. Carries the schedule plus the plan-level cost picture
  * ({@code baselineCostNok}, {@code expectedSavingsNok}) so the confirmation screen needs no second
- * call; {@code planId} lets the client fetch the full plan if it wants the EV snapshot.
+ * call; {@code planId} lets the client fetch the full plan if it wants the EV snapshot. {@code session}
+ * is the schedule's Mock Charging execution outcome, and is {@code null} until the scheduler makes its
+ * first attempt (a schedule still {@code WAITING} has none yet).
  *
  * <p>Timestamps are rendered in Europe/Oslo, consistent with every other price-derived response.
  */
@@ -30,6 +33,7 @@ public record ChargingScheduleResponse(
         BigDecimal baselineCostNok,
         BigDecimal expectedSavingsNok,
         List<ChargingPlanSlot> slots,
+        ChargingSessionSummaryResponse session,
         OffsetDateTime createdAt,
         OffsetDateTime updatedAt
 ) {
@@ -37,7 +41,7 @@ public record ChargingScheduleResponse(
     private static final ZoneId DISPLAY_ZONE = ElectricityPriceService.PRICE_ZONE;
 
     public static ChargingScheduleResponse of(ChargingSchedule schedule, ChargingPlan plan,
-                                              List<ChargingPlanSlot> slots) {
+                                              List<ChargingPlanSlot> slots, ChargingSession session) {
         return new ChargingScheduleResponse(
                 schedule.getId(),
                 plan.getId(),
@@ -51,6 +55,7 @@ public record ChargingScheduleResponse(
                 plan.getBaselineCostNok(),
                 plan.getExpectedSavingsNok(),
                 slots,
+                session == null ? null : ChargingSessionSummaryResponse.of(session),
                 atDisplayZone(schedule.getCreatedAt()),
                 atDisplayZone(schedule.getUpdatedAt()));
     }

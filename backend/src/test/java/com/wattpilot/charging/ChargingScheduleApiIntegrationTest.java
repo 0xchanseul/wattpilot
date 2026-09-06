@@ -96,7 +96,7 @@ class ChargingScheduleApiIntegrationTest {
         String body = mockMvc.perform(scheduleRequest(token, evId, deadline, selectedStartAt, selectedEndAt))
                 .andExpect(status().isCreated())
                 .andExpect(header().string(HttpHeaders.LOCATION, containsString("/api/v1/charging-schedules/")))
-                .andExpect(jsonPath("$.status").value("CREATED"))
+                .andExpect(jsonPath("$.status").value("WAITING"))
                 .andExpect(jsonPath("$.evId").value((int) evId))
                 .andExpect(jsonPath("$.slots.length()").value(2))
                 .andReturn().getResponse().getContentAsString();

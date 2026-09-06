@@ -5,9 +5,9 @@
 | EV Registration | ✅ |  |  | Battery capacity, maximum AC charging power, default charger power | Manual input in V1 |
 | Electricity Price Lookup | ✅ |  |  | External API | Hva koster strømmen API |
 | Optimal Charging Time Calculation | ✅ |  |  | Core feature | Continuous charging window only; preview returns up to 3 candidates and persists nothing |
-| Charging Reservation | ✅ |  |  | Scheduler | The user confirms one previewed candidate; only that candidate is stored as plan + slots + schedule |
+| Charging Reservation | ✅ |  |  | Scheduler | The user confirms one previewed candidate; only that candidate is stored as plan + slots + schedule. A reservation can be cancelled only while still `WAITING`. |
 | Actual EV Control | ❌ |  |  | Use Mock |  |
-| Mock Charging | ✅ |  |  | Used instead of actual devices |  |
+| Mock Charging | ✅ |  |  | Used instead of actual devices | Triggered internally by a 1-minute execution scheduler, not by a user-facing API |
 | Charging History | ✅ |  |  |  |  |
 | Savings Calculation | ✅ |  |  |  |  |
 | Tibber API |  | ✅ |  |  | Support personalization through Tibber API integration |

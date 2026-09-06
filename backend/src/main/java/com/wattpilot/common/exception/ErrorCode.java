@@ -50,7 +50,10 @@ public enum ErrorCode {
     // produce (prices changed, or its start time has since passed).
     CHARGING_CANDIDATE_UNAVAILABLE(HttpStatus.CONFLICT, "The selected charging window is no longer available. Request a fresh preview."),
     // The EV already has an active schedule overlapping the selected window.
-    CHARGING_SCHEDULE_CONFLICT(HttpStatus.CONFLICT, "This EV already has a charging schedule that overlaps the selected window.");
+    CHARGING_SCHEDULE_CONFLICT(HttpStatus.CONFLICT, "This EV already has a charging schedule that overlaps the selected window."),
+
+    // The schedule is no longer in WAITING (already started, already finished, or already cancelled).
+    CHARGING_SCHEDULE_NOT_CANCELLABLE(HttpStatus.CONFLICT, "This charging schedule can no longer be cancelled.");
 
     private final HttpStatus status;
     private final String defaultMessage;

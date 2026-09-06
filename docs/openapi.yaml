@@ -21,9 +21,7 @@ tags:
   - { name: EV, description: Manually registered electric vehicles }
   - { name: Electricity Price, description: Norwegian hourly electricity prices }
   - { name: Charging Optimization, description: Charging plan optimization and calculated recommendations }
-  - { name: Scheduler, description: Charging schedule lifecycle }
-  - { name: Mock Charging, description: Simulated execution of scheduled charging }
-  - { name: History, description: Completed and failed charging sessions }
+  - { name: Scheduler, description: Charging schedule lifecycle, mock-charging execution, and cancellation }
   - { name: Savings, description: Cost and savings summaries }
 
 paths:
@@ -390,6 +388,9 @@ paths:
     get:
       tags: [Scheduler]
       summary: Get a charging schedule
+      description: |
+        `session` reports the Mock Charging execution outcome and is `null` until the 1-minute
+        execution scheduler makes its first attempt (a schedule still `WAITING` has none yet).
       operationId: getChargingSchedule
       responses:
         '200':
@@ -400,149 +401,25 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
-  /mock-charging/sessions:
+  /charging-schedules/{scheduleId}/cancel:
     post:
-      tags: [Mock Charging]
-      summary: Start a mock charging session
-      description: Simulates the scheduler trigger. No real EV command is sent.
-      operationId: startMockCharging
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/StartMockChargingRequest' }
+      tags: [Scheduler]
+      summary: Cancel a waiting charging schedule
+      description: |
+        Only a `WAITING` schedule can be cancelled. Once the execution scheduler has started it
+        (`IN_PROGRESS`) or it has already reached a terminal status, this returns 409.
+      operationId: cancelChargingSchedule
+      parameters:
+        - $ref: '#/components/parameters/ScheduleId'
       responses:
-        '201':
-          description: Mock session started
+        '200':
+          description: Schedule cancelled
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/ChargingSession' }
-        '400': { $ref: '#/components/responses/BadRequest' }
+              schema: { $ref: '#/components/schemas/ChargingSchedule' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
-
-  /mock-charging/sessions/{sessionId}:
-    parameters:
-      - $ref: '#/components/parameters/SessionId'
-    get:
-      tags: [Mock Charging]
-      summary: Get mock charging progress
-      operationId: getMockChargingSession
-      responses:
-        '200':
-          description: Charging session
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ChargingSession' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
-
-  /mock-charging/sessions/{sessionId}/complete:
-    post:
-      tags: [Mock Charging]
-      summary: Complete a mock charging session
-      operationId: completeMockCharging
-      parameters:
-        - $ref: '#/components/parameters/SessionId'
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/CompleteMockChargingRequest' }
-      responses:
-        '200':
-          description: Session completed and history finalized
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ChargingSession' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
-
-  /mock-charging/sessions/{sessionId}/fail:
-    post:
-      tags: [Mock Charging]
-      summary: Fail a mock charging session
-      operationId: failMockCharging
-      parameters:
-        - $ref: '#/components/parameters/SessionId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/FailMockChargingRequest' }
-      responses:
-        '200':
-          description: Session failed
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ChargingSession' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
-
-  /mock-charging/sessions/{sessionId}/cancel:
-    post:
-      tags: [Mock Charging]
-      summary: Cancel a mock charging session
-      operationId: cancelMockCharging
-      parameters:
-        - $ref: '#/components/parameters/SessionId'
-      responses:
-        '200':
-          description: Session cancelled
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ChargingSession' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
-
-  /charging-history:
-    get:
-      tags: [History]
-      summary: List charging history
-      operationId: listChargingHistory
-      parameters:
-        - $ref: '#/components/parameters/Page'
-        - $ref: '#/components/parameters/Size'
-        - name: evId
-          in: query
-          schema: { type: integer, format: int64, minimum: 1 }
-        - name: status
-          in: query
-          schema: { $ref: '#/components/schemas/SessionStatus' }
-        - name: from
-          in: query
-          schema: { type: string, format: date-time }
-        - name: to
-          in: query
-          schema: { type: string, format: date-time }
-      responses:
-        '200':
-          description: History page
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ChargingHistoryPage' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-
-  /charging-history/{sessionId}:
-    get:
-      tags: [History]
-      summary: Get charging history detail
-      operationId: getChargingHistory
-      parameters:
-        - $ref: '#/components/parameters/SessionId'
-      responses:
-        '200':
-          description: Charging history detail
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ChargingHistoryDetail' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
 
   /savings/summary:
     get:
@@ -654,11 +531,6 @@ components:
       in: path
       required: true
       schema: { type: integer, format: int64, minimum: 1 }
-    SessionId:
-      name: sessionId
-      in: path
-      required: true
-      schema: { type: integer, format: int64, minimum: 1 }
 
   responses:
     BadRequest:
@@ -711,11 +583,33 @@ components:
 
     ScheduleStatus:
       type: string
-      enum: [CREATED, WAITING, IN_PROGRESS, COMPLETED, CANCELLED, FAILED]
+      description: |
+        A confirmed schedule is created directly in WAITING. The 1-minute execution scheduler drives
+        it through IN_PROGRESS to COMPLETED or FAILED; a user can cancel it (to CANCELLED) only while
+        it is still WAITING.
+      enum: [WAITING, IN_PROGRESS, COMPLETED, CANCELLED, FAILED]
 
     SessionStatus:
       type: string
+      description: |
+        CANCELLED is not written by V1 (execution-time cancellation is out of scope; a schedule
+        cancelled while still WAITING never gets a session at all) but stays a valid value for a
+        future version.
       enum: [STARTED, COMPLETED, FAILED, CANCELLED]
+
+    FailureCode:
+      type: string
+      description: |
+        Machine-readable reason a session ended FAILED. The first five values come directly from the
+        Mock Charging execution outcome; SYSTEM_ERROR is used only after a transient technical error
+        exhausts its retry budget and never carries internal exception detail.
+      enum:
+        - CHARGER_UNAVAILABLE
+        - VEHICLE_DISCONNECTED
+        - START_REJECTED
+        - CHARGING_INTERRUPTED
+        - MISSED_EXECUTION_WINDOW
+        - SYSTEM_ERROR
 
     SignUpRequest:
       type: object
@@ -1052,65 +946,34 @@ components:
           minItems: 1
           description: The confirmed plan's price slots.
           items: { $ref: '#/components/schemas/ChargingPlanSlot' }
+        session:
+          allOf:
+            - $ref: '#/components/schemas/ChargingSessionSummary'
+          nullable: true
+          description: >-
+            The schedule's Mock Charging execution outcome. Null until the 1-minute execution
+            scheduler makes its first attempt.
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
 
-    StartMockChargingRequest:
+    ChargingSessionSummary:
       type: object
-      required: [scheduleId]
+      required: [status]
+      description: |
+        Populated by the scheduler-driven execution service, never by a direct user call — V1 has no
+        user-facing Mock Charging API. baselineCostNok, optimizedCostNok and estimatedSavingsNok are
+        set only once status is COMPLETED, since they describe a realized outcome.
       properties:
-        scheduleId: { type: integer, format: int64, minimum: 1, example: 1 }
-
-    CompleteMockChargingRequest:
-      type: object
-      properties:
-        actualEnergyKwh:
-          type: number
-          format: double
-          minimum: 0
-          description: Defaults to the schedule's expected energy.
-        actualEndAt:
-          type: string
-          format: date-time
-          description: Defaults to current time.
-
-    FailMockChargingRequest:
-      type: object
-      required: [failureReason]
-      properties:
-        failureReason: { type: string, minLength: 1, maxLength: 500, example: Simulated charger communication failure }
-
-    ChargingSession:
-      type: object
-      required: [id, scheduleId, evId, status, startedAt, expectedEnergyKwh, estimatedCostNok]
-      properties:
-        id: { type: integer, format: int64, minimum: 1, example: 1 }
-        scheduleId: { type: integer, format: int64, minimum: 1, example: 1 }
-        evId: { type: integer, format: int64, minimum: 1, example: 1 }
         status: { $ref: '#/components/schemas/SessionStatus' }
-        startedAt: { type: string, format: date-time }
-        endedAt: { type: string, format: date-time, nullable: true }
-        expectedEnergyKwh: { type: number, format: double }
+        startedAt: { type: string, format: date-time, nullable: true }
+        completedAt: { type: string, format: date-time, nullable: true }
         actualEnergyKwh: { type: number, format: double, nullable: true }
-        estimatedCostNok: { type: number, format: double }
         actualCostNok: { type: number, format: double, nullable: true }
-        baselineCostNok: { type: number, format: double, nullable: true }
-        savingsNok: { type: number, format: double, nullable: true }
+        baselineCostNok: { type: number, format: double, nullable: true, description: Cost of charging immediately from "now". }
+        optimizedCostNok: { type: number, format: double, nullable: true }
+        estimatedSavingsNok: { type: number, format: double, nullable: true }
+        failureCode: { allOf: [{ $ref: '#/components/schemas/FailureCode' }], nullable: true }
         failureReason: { type: string, nullable: true }
-        createdAt: { type: string, format: date-time }
-        updatedAt: { type: string, format: date-time }
-
-    ChargingHistoryDetail:
-      allOf:
-        - $ref: '#/components/schemas/ChargingSession'
-        - type: object
-          required: [evSnapshot, priceArea, slots]
-          properties:
-            evSnapshot: { $ref: '#/components/schemas/EvSnapshot' }
-            priceArea: { $ref: '#/components/schemas/PriceArea' }
-            slots:
-              type: array
-              items: { $ref: '#/components/schemas/ChargingPlanSlot' }
 
     SavingsSummary:
       type: object
@@ -1169,13 +1032,6 @@ components:
       required: [content, page]
       properties:
         content: { type: array, items: { $ref: '#/components/schemas/ChargingSchedule' } }
-        page: { $ref: '#/components/schemas/PageMetadata' }
-
-    ChargingHistoryPage:
-      type: object
-      required: [content, page]
-      properties:
-        content: { type: array, items: { $ref: '#/components/schemas/ChargingSession' } }
         page: { $ref: '#/components/schemas/PageMetadata' }
 
     FieldError:

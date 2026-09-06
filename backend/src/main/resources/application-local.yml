@@ -26,6 +26,13 @@ spring:
     enabled: true
 
 wattpilot:
+  charging:
+    execution:
+      # Off by default for local development and tests so a background tick never runs against test
+      # data mid-assertion. Set CHARGING_EXECUTION_ENABLED=true (or override here) to exercise it
+      # locally; integration tests that specifically target the scheduler enable it themselves.
+      enabled: ${CHARGING_EXECUTION_ENABLED:false}
+
   electricity:
     collection:
       # Do not hit the real Hva koster strømmen API during local development or tests.

@@ -10,9 +10,11 @@ import com.wattpilot.charging.entity.ChargingPlan;
 import com.wattpilot.charging.entity.ChargingPlanSlot;
 import com.wattpilot.charging.entity.ChargingSchedule;
 import com.wattpilot.charging.entity.ChargingScheduleStatus;
+import com.wattpilot.charging.entity.ChargingSession;
 import com.wattpilot.charging.repository.ChargingPlanRepository;
 import com.wattpilot.charging.repository.ChargingPlanSlotRepository;
 import com.wattpilot.charging.repository.ChargingScheduleRepository;
+import com.wattpilot.charging.repository.ChargingSessionRepository;
 import com.wattpilot.common.exception.BusinessException;
 import com.wattpilot.common.exception.ErrorCode;
 import com.wattpilot.common.response.PageResponse;
@@ -46,7 +48,6 @@ public class ChargingScheduleService {
 
     /** Schedule states that still reserve the EV's time and therefore block an overlapping schedule. */
     private static final Set<ChargingScheduleStatus> ACTIVE_STATUSES = Set.of(
-            ChargingScheduleStatus.CREATED,
             ChargingScheduleStatus.WAITING,
             ChargingScheduleStatus.IN_PROGRESS);
 
@@ -57,6 +58,7 @@ public class ChargingScheduleService {
     private final ChargingPlanRepository planRepository;
     private final ChargingPlanSlotRepository slotRepository;
     private final ChargingScheduleRepository scheduleRepository;
+    private final ChargingSessionRepository sessionRepository;
 
     public ChargingScheduleService(ChargingOptimizationService optimizationService,
                                    ChargingCandidateSelector candidateSelector,
@@ -64,7 +66,8 @@ public class ChargingScheduleService {
                                    ElectricityPriceService electricityPriceService,
                                    ChargingPlanRepository planRepository,
                                    ChargingPlanSlotRepository slotRepository,
-                                   ChargingScheduleRepository scheduleRepository) {
+                                   ChargingScheduleRepository scheduleRepository,
+                                   ChargingSessionRepository sessionRepository) {
         this.optimizationService = optimizationService;
         this.candidateSelector = candidateSelector;
         this.evService = evService;
@@ -72,6 +75,7 @@ public class ChargingScheduleService {
         this.planRepository = planRepository;
         this.slotRepository = slotRepository;
         this.scheduleRepository = scheduleRepository;
+        this.sessionRepository = sessionRepository;
     }
 
     @Transactional
@@ -122,7 +126,7 @@ public class ChargingScheduleService {
                 selected.expectedEnergyKwh(),
                 selected.estimatedCostNok()));
 
-        return ChargingScheduleResponse.of(schedule, plan, ChargingSlotMapper.toDtos(slotEntities));
+        return ChargingScheduleResponse.of(schedule, plan, ChargingSlotMapper.toDtos(slotEntities), null);
     }
 
     @Transactional(readOnly = true)
@@ -132,8 +136,9 @@ public class ChargingScheduleService {
         ChargingPlan plan = planRepository.findById(schedule.getChargingPlanId())
                 .filter(candidate -> candidate.getUserId().equals(userId))
                 .orElseThrow(() -> new BusinessException(ErrorCode.CHARGING_SCHEDULE_NOT_FOUND));
+        ChargingSession session = sessionRepository.findByChargingScheduleId(schedule.getId()).orElse(null);
         return ChargingScheduleResponse.of(schedule, plan, ChargingSlotMapper.toDtos(
-                slotRepository.findByChargingPlanIdOrderBySequenceNoAsc(plan.getId())));
+                slotRepository.findByChargingPlanIdOrderBySequenceNoAsc(plan.getId())), session);
     }
 
     @Transactional(readOnly = true)
@@ -145,17 +150,40 @@ public class ChargingScheduleService {
 
         Page<ChargingSchedule> page = scheduleRepository.findByChargingPlanIdIn(planIds, pageable);
         List<Long> pagePlanIds = page.getContent().stream().map(ChargingSchedule::getChargingPlanId).toList();
+        List<Long> pageScheduleIds = page.getContent().stream().map(ChargingSchedule::getId).toList();
 
         Map<Long, ChargingPlan> plansById = planRepository.findAllById(pagePlanIds).stream()
                 .collect(Collectors.toMap(ChargingPlan::getId, Function.identity()));
         Map<Long, List<ChargingPlanSlot>> slotsByPlan = slotRepository
                 .findByChargingPlanIdInOrderByChargingPlanIdAscSequenceNoAsc(pagePlanIds).stream()
                 .collect(Collectors.groupingBy(ChargingPlanSlot::getChargingPlanId));
+        Map<Long, ChargingSession> sessionsBySchedule = sessionRepository.findByChargingScheduleIdIn(pageScheduleIds)
+                .stream()
+                .collect(Collectors.toMap(ChargingSession::getChargingScheduleId, Function.identity()));
 
         return PageResponse.from(page.map(schedule -> ChargingScheduleResponse.of(
                 schedule,
                 plansById.get(schedule.getChargingPlanId()),
-                ChargingSlotMapper.toDtos(slotsByPlan.getOrDefault(schedule.getChargingPlanId(), List.of())))));
+                ChargingSlotMapper.toDtos(slotsByPlan.getOrDefault(schedule.getChargingPlanId(), List.of())),
+                sessionsBySchedule.get(schedule.getId()))));
+    }
+
+    /** Cancels a schedule that has not started yet. Any other status is reported as a 409 conflict. */
+    @Transactional
+    public ChargingScheduleResponse cancelSchedule(Long userId, Long scheduleId) {
+        ChargingSchedule schedule = scheduleRepository.findByIdForUpdate(scheduleId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.CHARGING_SCHEDULE_NOT_FOUND));
+        ChargingPlan plan = planRepository.findById(schedule.getChargingPlanId())
+                .filter(candidate -> candidate.getUserId().equals(userId))
+                .orElseThrow(() -> new BusinessException(ErrorCode.CHARGING_SCHEDULE_NOT_FOUND));
+
+        if (schedule.getStatus() != ChargingScheduleStatus.WAITING) {
+            throw new BusinessException(ErrorCode.CHARGING_SCHEDULE_NOT_CANCELLABLE);
+        }
+        schedule.markCancelled();
+
+        return ChargingScheduleResponse.of(schedule, plan, ChargingSlotMapper.toDtos(
+                slotRepository.findByChargingPlanIdOrderBySequenceNoAsc(plan.getId())), null);
     }
 
     private void requireNoOverlap(Long userId, Long evId, ChargingCandidate selected) {

@@ -58,4 +58,12 @@ public class ChargingScheduleController {
             @PathVariable Long scheduleId) {
         return ResponseEntity.ok(chargingScheduleService.getSchedule(authenticatedUser.userId(), scheduleId));
     }
+
+    @Operation(summary = "Cancel a waiting charging schedule")
+    @PostMapping("/{scheduleId}/cancel")
+    public ResponseEntity<ChargingScheduleResponse> cancelChargingSchedule(
+            @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+            @PathVariable Long scheduleId) {
+        return ResponseEntity.ok(chargingScheduleService.cancelSchedule(authenticatedUser.userId(), scheduleId));
+    }
 }

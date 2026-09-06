@@ -19,6 +19,21 @@ wattpilot:
     # billed energy and cost are computed on the full charger draw.
     efficiency: ${CHARGING_EFFICIENCY:0.9}
 
+    execution:
+      # 1-minute Mock Charging execution scheduler. Disabled for local development and tests
+      # (see application-local.yml); enabled by default everywhere else.
+      enabled: ${CHARGING_EXECUTION_ENABLED:true}
+      # Fires every minute on the minute.
+      cron: ${CHARGING_EXECUTION_CRON:0 * * * * *}
+      # Maximum schedules processed per phase (complete / start / missed) per tick.
+      batch-size: ${CHARGING_EXECUTION_BATCH_SIZE:100}
+      # Attempts allowed for one phase (start or completion) before a transient error is finalized
+      # as FAILED(SYSTEM_ERROR). A database failure that rolls back the whole attempt is retried
+      # for free on the next tick and does not count against this budget.
+      retry-max-attempts: ${CHARGING_EXECUTION_RETRY_MAX_ATTEMPTS:3}
+      retry-initial-backoff: ${CHARGING_EXECUTION_RETRY_INITIAL_BACKOFF:PT1M}
+      retry-backoff-multiplier: ${CHARGING_EXECUTION_RETRY_BACKOFF_MULTIPLIER:2.0}
+
   electricity:
     collection:
       # Scheduled next-day price collection. Disabled for local development and tests

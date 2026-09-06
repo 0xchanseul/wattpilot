@@ -156,7 +156,7 @@ Re-run the calculation against the latest prices
   EV already has an overlapping active schedule → 409 CHARGING_SCHEDULE_CONFLICT
         ↓
 Persist, in ONE transaction:
-  1 charging_plans row (SUCCEEDED)  +  its charging_plan_slots  +  1 charging_schedules row (CREATED)
+  1 charging_plans row (SUCCEEDED)  +  its charging_plan_slots  +  1 charging_schedules row (WAITING)
         ↓
 201 with the schedule
 ```
@@ -167,7 +167,45 @@ A **charging plan** is the recommendation for the one candidate the user confirm
 
 `GET /charging-plans` and `GET /charging-plans/{planId}` return the caller's stored (SUCCEEDED) plans.
 
-A **charging schedule** is the execution booking for a plan, created in the same transaction as the plan. The `charging_schedules` table has no `user_id` / `ev_id`; ownership and the overlap check reach the EV through `charging_plan_id → charging_plans`. Reservation/execution lifecycle (`CREATED`, `WAITING`, `IN_PROGRESS`, `COMPLETED`, `CANCELLED`, `FAILED`) belongs to `charging_schedules` / `ScheduleStatus`. A confirm locks the EV row for the transaction so two concurrent confirms for the same EV cannot both pass the overlap check.
+A **charging schedule** is the execution booking for a plan, created in the same transaction as the plan, directly in `WAITING`. The `charging_schedules` table has no `user_id` / `ev_id`; ownership and the overlap check reach the EV through `charging_plan_id → charging_plans`. Reservation/execution lifecycle (`WAITING`, `IN_PROGRESS`, `COMPLETED`, `CANCELLED`, `FAILED`) belongs to `charging_schedules` / `ScheduleStatus`. A confirm locks the EV row for the transaction so two concurrent confirms for the same EV cannot both pass the overlap check. `POST /charging-schedules/{scheduleId}/cancel` moves a `WAITING` schedule to `CANCELLED`; any other status is a 409 — V1 does not support cancelling a schedule once execution has started.
+
+# Charging Execution
+
+A 1-minute scheduler drives every confirmed reservation through Mock Charging, calling an internal service directly — never its own HTTP API — so the whole flow stays inside one process for V1.
+
+```text
+ChargingExecutionScheduler   (com.wattpilot.scheduler, @Scheduled every minute)
+        ↓ calls directly, no HTTP
+ChargingExecutionService     (com.wattpilot.charging.service — one schedule id, own transaction)
+        ↓
+ChargingExecutionPort        (interface)
+        ↓
+MockChargingAdapter          // V1, always succeeds
+        ↓
+Manufacturer APIs            // Future
+```
+
+Each tick reads three disjoint sets of schedule ids (bounded to `batch-size`, default 100) and processes completion before start before missed:
+
+```text
+complete: IN_PROGRESS AND scheduledEndAt <= now AND not backing off
+start:    WAITING     AND scheduledStartAt <= now AND scheduledEndAt > now AND not backing off
+missed:   WAITING     AND scheduledEndAt <= now                              (backoff state ignored: a closed window is a hard deadline)
+```
+
+Every schedule id gets its **own transaction** (`REQUIRES_NEW`) inside `ChargingExecutionService`; a failure on one id is logged and the batch continues with the next. A `ChargingSession` is created exactly once per schedule, at the moment a definitive outcome (success or a confirmed failure) is known — never per retry attempt — so `charging_sessions.charging_schedule_id` stays unique.
+
+**Two failure kinds are handled differently:**
+
+- **Business/execution failure** — `ChargingExecutionPort` returns a definitive failure (`CHARGER_UNAVAILABLE`, `VEHICLE_DISCONNECTED`, `START_REJECTED`, `CHARGING_INTERRUPTED`), or the window closes before a start was ever attempted (`MISSED_EXECUTION_WINDOW`). The schedule and session move to `FAILED` with that `failureCode`/`failureReason` and the transaction commits.
+- **Transient technical error** — `ChargingExecutionPort` throws. Caught inside the same transaction, so a bounded retry (`retry-max-attempts`, default 3, with a backoff that starts at `retry-initial-backoff` and grows by `retry-backoff-multiplier` each attempt) commits normally; the schedule stays in its current status via `retry_count` / `next_retry_at`. Exhausting the budget finalizes both as `FAILED` with `failureCode = SYSTEM_ERROR` and a safe, generic `failureReason` — the underlying exception is logged, never exposed.
+- **Database/transaction failure** (not from the port call) is deliberately left uncaught: the whole attempt rolls back, nothing is persisted — not even a retry-count increment — and the next tick's read-state query retries it for free, with no attempt limit.
+
+Concurrency (a scheduler tick racing a user's cancel request, or two ticks touching the same schedule) is serialized with the same `SELECT ... FOR UPDATE` row-lock pattern `EvRepository` already uses, re-checking the expected status after acquiring the lock before making any change.
+
+On a successful completion, `actualEnergyKwh` / `actualCostNok` / `baselineCostNok` / `optimizedCostNok` / `estimatedSavingsNok` are derived from the **plan/slot snapshot taken at confirmation time** — never a fresh price lookup or a re-run of the optimizer. V1 mock charging always finishes exactly as planned, so there is no partial-charge simulation.
+
+`GET /charging-schedules/{scheduleId}` and the list endpoint embed the schedule's `ChargingSessionSummary` (null until the first execution attempt) — there is no separate user-facing Mock Charging API or history endpoint in V1.
 
 # Deployment Architecture
 

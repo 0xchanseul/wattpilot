@@ -31,11 +31,22 @@ flowchart TD
     N -- No / change inputs --> H
     N -- Yes --> O[Schedule API: Recalculate, Validate Pick, Persist Plan + Slots + Schedule]
 
-    O --> P[Wait Until Scheduled Time]
-    P --> Q[Execute Mock Charging]
-    Q --> R[Charging Completed]
+    O --> P[Schedule WAITING]
+    P --> P1{User cancels before start?}
+    P1 -- Yes --> P2[Schedule CANCELLED]
+    P1 -- No --> Q{"1-min Scheduler: start time reached\nbefore the window closes?"}
+    Q -- "Window closed first" --> Q1["Schedule/Session FAILED\n(MISSED_EXECUTION_WINDOW)"]
+    Q -- Yes --> R[Scheduler calls Mock Charging: Start]
+    R --> R1{Start succeeded?}
+    R1 -- No --> R2[Schedule/Session FAILED]
+    R1 -- Yes --> S[Schedule IN_PROGRESS / Session STARTED]
 
-    R --> S[Save Charging History]
-    S --> T[Calculate Estimated Savings]
-    T --> U[View Charging Result]
-    U --> D
+    S --> T[1-min Scheduler: end time reached]
+    T --> U[Scheduler calls Mock Charging: Complete]
+    U --> U1{Complete succeeded?}
+    U1 -- No --> U2[Schedule/Session FAILED]
+    U1 -- Yes --> V[Schedule COMPLETED / Session COMPLETED]
+
+    V --> W["Store actual energy, cost, and savings\nfrom the plan/slot snapshot taken at confirmation"]
+    W --> X[View Charging Result]
+    X --> D

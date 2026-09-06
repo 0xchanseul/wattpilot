@@ -29,7 +29,6 @@ Enum price_provider {
 // The preview endpoint writes nothing.
 
 Enum charging_schedule_status {
-  CREATED
   WAITING
   IN_PROGRESS
   COMPLETED
@@ -37,6 +36,9 @@ Enum charging_schedule_status {
   FAILED
 }
 
+// charging_sessions.status. CANCELLED is not written by V1 (execution-time cancellation is out of
+// scope; a schedule cancelled while still WAITING never gets a session at all) but stays a valid
+// schema value for a future version, the same way charging_plans.status keeps FAILED today.
 Enum charging_session_status {
   STARTED
   COMPLETED
@@ -221,18 +223,28 @@ Table charging_schedules {
   expected_energy_kwh decimal(8,2) [not null]
   estimated_cost_nok decimal(12,4) [not null]
 
-  status charging_schedule_status [not null, default: 'CREATED']
+  status charging_schedule_status [not null, default: 'WAITING']
+
+  // Bounded-retry bookkeeping for a transient error thrown by ChargingExecutionPort. A database
+  // failure that rolls back the whole execution attempt is retried for free on the next scheduler
+  // tick and never touches these columns (see ChargingExecutionService).
+  retry_count int [not null, default: 0, note: 'Consecutive transient errors since the last successful phase transition']
+  next_retry_at timestamptz [note: 'Earliest time the scheduler may retry; null outside a backoff wait']
+
   created_at timestamptz [not null]
   updated_at timestamptz [not null]
 
   Indexes {
     charging_plan_id [unique]
     (status, scheduled_start_at)
+    scheduled_end_at [name: 'idx_charging_schedules_in_progress_end', where: "status = 'IN_PROGRESS'"]
   }
 
   checks {
     `scheduled_end_at > scheduled_start_at` [name: 'charging_schedule_time_range_valid']
     `expected_energy_kwh > 0` [name: 'charging_schedule_energy_positive']
+    `retry_count >= 0` [name: 'charging_schedule_retry_count_non_negative']
+    `next_retry_at IS NULL OR status IN ('WAITING', 'IN_PROGRESS')` [name: 'charging_schedule_next_retry_only_when_active']
   }
 }
 
@@ -259,6 +271,14 @@ Table charging_schedule_slots {
   }
 }
 
+// One execution attempt outcome per charging_schedules row (enforced by the unique index below).
+// Created exactly once, at the moment a definitive outcome is known for the schedule's start attempt
+// (STARTED on success, FAILED on a business/system failure or a missed execution window) and updated
+// at most once more, when the completion attempt resolves (COMPLETED or FAILED).
+//
+// baseline_cost_nok, optimized_cost_nok and estimated_savings_nok are populated only on COMPLETED:
+// they describe a realized outcome, so a failed or cancelled attempt leaves them null rather than
+// reporting savings that were never delivered.
 Table charging_sessions {
   id bigint [pk, increment]
   charging_schedule_id bigint [not null, ref: > charging_schedules.id]
@@ -273,19 +293,26 @@ Table charging_sessions {
   estimated_savings_nok decimal(12,4)
 
   status charging_session_status [not null]
+  failure_code varchar(50) [note: 'Machine-readable reason; see the CHECK below for the allowed values']
   failure_reason varchar(500)
 
   created_at timestamptz [not null]
   updated_at timestamptz [not null]
 
   Indexes {
-    charging_schedule_id
+    charging_schedule_id [unique]
     started_at
   }
 
   checks {
     `completed_at IS NULL OR started_at IS NULL OR completed_at >= started_at` [name: 'charging_session_time_range_valid']
     `actual_energy_kwh IS NULL OR actual_energy_kwh >= 0` [name: 'charging_session_energy_non_negative']
+    `failure_code IS NULL OR failure_code IN ('CHARGER_UNAVAILABLE', 'VEHICLE_DISCONNECTED', 'START_REJECTED', 'CHARGING_INTERRUPTED', 'MISSED_EXECUTION_WINDOW', 'SYSTEM_ERROR')` [name: 'charging_session_failure_code_valid']
+    // Per-status field presence, mirroring the pattern charging_plans uses for SUCCEEDED/FAILED.
+    `status <> 'STARTED' OR (started_at IS NOT NULL AND completed_at IS NULL AND actual_energy_kwh IS NULL AND actual_cost_nok IS NULL AND baseline_cost_nok IS NULL AND optimized_cost_nok IS NULL AND estimated_savings_nok IS NULL AND failure_code IS NULL AND failure_reason IS NULL)` [name: 'charging_session_started_fields_valid']
+    `status <> 'COMPLETED' OR (started_at IS NOT NULL AND completed_at IS NOT NULL AND completed_at >= started_at AND actual_energy_kwh IS NOT NULL AND actual_cost_nok IS NOT NULL AND baseline_cost_nok IS NOT NULL AND optimized_cost_nok IS NOT NULL AND estimated_savings_nok IS NOT NULL AND failure_code IS NULL AND failure_reason IS NULL)` [name: 'charging_session_completed_fields_valid']
+    `status <> 'FAILED' OR (completed_at IS NULL AND actual_energy_kwh IS NULL AND actual_cost_nok IS NULL AND baseline_cost_nok IS NULL AND optimized_cost_nok IS NULL AND estimated_savings_nok IS NULL AND failure_code IS NOT NULL AND failure_reason IS NOT NULL)` [name: 'charging_session_failed_fields_valid']
+    `status <> 'CANCELLED' OR (completed_at IS NULL AND actual_energy_kwh IS NULL AND actual_cost_nok IS NULL AND baseline_cost_nok IS NULL AND optimized_cost_nok IS NULL AND estimated_savings_nok IS NULL AND failure_code IS NULL AND failure_reason IS NULL)` [name: 'charging_session_cancelled_fields_valid']
   }
 }
 

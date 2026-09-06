@@ -12,6 +12,7 @@ import com.wattpilot.charging.entity.ChargingScheduleStatus;
 import com.wattpilot.charging.repository.ChargingPlanRepository;
 import com.wattpilot.charging.repository.ChargingPlanSlotRepository;
 import com.wattpilot.charging.repository.ChargingScheduleRepository;
+import com.wattpilot.charging.repository.ChargingSessionRepository;
 import com.wattpilot.common.PriceArea;
 import com.wattpilot.common.exception.BusinessException;
 import com.wattpilot.common.exception.ErrorCode;
@@ -53,13 +54,14 @@ class ChargingScheduleServiceTest {
     @Mock private ChargingPlanRepository planRepository;
     @Mock private ChargingPlanSlotRepository slotRepository;
     @Mock private ChargingScheduleRepository scheduleRepository;
+    @Mock private ChargingSessionRepository sessionRepository;
 
     private ChargingScheduleService service;
 
     @BeforeEach
     void setUp() {
         service = new ChargingScheduleService(optimizationService, candidateSelector, evService,
-                electricityPriceService, planRepository, slotRepository, scheduleRepository);
+                electricityPriceService, planRepository, slotRepository, scheduleRepository, sessionRepository);
     }
 
     @Test
@@ -80,7 +82,7 @@ class ChargingScheduleServiceTest {
         assertThat(response.id()).isEqualTo(88L);
         assertThat(response.planId()).isEqualTo(77L);
         assertThat(response.evId()).isEqualTo(EV_ID);
-        assertThat(response.status()).isEqualTo(ChargingScheduleStatus.CREATED);
+        assertThat(response.status()).isEqualTo(ChargingScheduleStatus.WAITING);
         assertThat(response.slots()).hasSize(2);
         assertThat(response.estimatedCostNok()).isEqualByComparingTo(selected.estimatedCostNok());
         assertThat(response.expectedSavingsNok()).isEqualByComparingTo(selected.expectedSavingsNok());
@@ -139,6 +141,60 @@ class ChargingScheduleServiceTest {
                 .isEqualTo(ErrorCode.CHARGING_DEADLINE_TOO_SOON);
 
         verify(planRepository, never()).save(any());
+    }
+
+    @Test
+    void cancelsAWaitingScheduleSuccessfully() {
+        ChargingPlan plan = planOwnedBy(USER_ID);
+        ChargingSchedule schedule = withId(ChargingSchedule.create(plan.getId(), at("01:00"), at("02:33"),
+                new BigDecimal("7.75"), new BigDecimal("2.0500")), 99L);
+        when(scheduleRepository.findByIdForUpdate(99L)).thenReturn(java.util.Optional.of(schedule));
+        when(planRepository.findById(plan.getId())).thenReturn(java.util.Optional.of(plan));
+        when(slotRepository.findByChargingPlanIdOrderBySequenceNoAsc(plan.getId())).thenReturn(List.of());
+
+        ChargingScheduleResponse response = service.cancelSchedule(USER_ID, 99L);
+
+        assertThat(response.status()).isEqualTo(ChargingScheduleStatus.CANCELLED);
+        assertThat(schedule.getStatus()).isEqualTo(ChargingScheduleStatus.CANCELLED);
+    }
+
+    @Test
+    void rejectsCancellingAScheduleThatIsNoLongerWaiting() {
+        ChargingPlan plan = planOwnedBy(USER_ID);
+        ChargingSchedule schedule = withId(ChargingSchedule.create(plan.getId(), at("01:00"), at("02:33"),
+                new BigDecimal("7.75"), new BigDecimal("2.0500")), 99L);
+        schedule.markInProgress();
+        when(scheduleRepository.findByIdForUpdate(99L)).thenReturn(java.util.Optional.of(schedule));
+        when(planRepository.findById(plan.getId())).thenReturn(java.util.Optional.of(plan));
+
+        assertThatThrownBy(() -> service.cancelSchedule(USER_ID, 99L))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).errorCode())
+                .isEqualTo(ErrorCode.CHARGING_SCHEDULE_NOT_CANCELLABLE);
+        assertThat(schedule.getStatus()).isEqualTo(ChargingScheduleStatus.IN_PROGRESS);
+    }
+
+    @Test
+    void cancellingAnotherUsersScheduleIsNotFound() {
+        ChargingPlan plan = planOwnedBy(USER_ID);
+        ChargingSchedule schedule = withId(ChargingSchedule.create(plan.getId(), at("01:00"), at("02:33"),
+                new BigDecimal("7.75"), new BigDecimal("2.0500")), 99L);
+        when(scheduleRepository.findByIdForUpdate(99L)).thenReturn(java.util.Optional.of(schedule));
+        when(planRepository.findById(plan.getId())).thenReturn(java.util.Optional.of(plan));
+
+        assertThatThrownBy(() -> service.cancelSchedule(USER_ID + 1, 99L))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).errorCode())
+                .isEqualTo(ErrorCode.CHARGING_SCHEDULE_NOT_FOUND);
+    }
+
+    private static ChargingPlan planOwnedBy(Long userId) {
+        ChargingCandidate candidate = selectedCandidate();
+        ChargingPlan plan = ChargingPlan.succeeded(userId, EV_ID, PriceArea.NO1,
+                new BigDecimal("30"), new BigDecimal("80"), at("00:00"), at("07:00"),
+                com.wattpilot.charging.dto.EvSnapshot.from(ev()),
+                new BigDecimal("30.00"), new BigDecimal("7.40"), 153, candidate);
+        return withId(plan, 77L);
     }
 
     private void stubFeasibleCalculationSelecting(ChargingCandidate selected) {
