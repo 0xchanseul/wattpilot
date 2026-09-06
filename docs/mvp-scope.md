@@ -7,7 +7,7 @@
 | Optimal Charging Time Calculation | ✅ |  |  | Core feature | Continuous charging window only; preview returns up to 3 candidates and persists nothing |
 | Charging Reservation | ✅ |  |  | Scheduler | The user confirms one previewed candidate; only that candidate is stored as plan + slots + schedule. A reservation can be cancelled only while still `WAITING`. |
 | Actual EV Control | ❌ |  |  | Use Mock |  |
-| Mock Charging | ✅ |  |  | Used instead of actual devices | Triggered internally by a 1-minute execution scheduler, not by a user-facing API |
+| Mock Charging | ✅ |  |  | Used instead of actual devices | Triggered internally by a 1-minute execution scheduler, not by a user-facing API; always succeeds unless a failure is injected by config for a demo or test |
 | Charging History | ✅ |  |  |  |  |
 | Savings Calculation | ✅ |  |  |  |  |
 | Tibber API |  | ✅ |  |  | Support personalization through Tibber API integration |

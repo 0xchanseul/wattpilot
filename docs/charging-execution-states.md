@@ -88,11 +88,13 @@ Stored in `charging_sessions.failure_code` (`VARCHAR(50)` + CHECK, not a DB enum
 | `MISSED_EXECUTION_WINDOW` | The schedule's window closed while still `WAITING` — it was never attempted. | `ChargingExecutionService.markMissed` |
 | `SYSTEM_ERROR` | A transient technical error (an exception from `ChargingExecutionPort`) exhausted its retry budget. | `ChargingExecutionService` retry exhaustion (start or completion phase) |
 
-The first four are the *Mock Charging adapter's own vocabulary* — V1's `MockChargingAdapter` never
-returns them (it always succeeds; see §7), but the port contract and the CHECK constraint support them
-for whichever component next implements a real failure path. `SYSTEM_ERROR`'s `failure_reason` is
-always a fixed, generic sentence — never the underlying exception message or stack trace, which is
-logged server-side only (same principle as `GlobalExceptionHandler`'s handling of unexpected `5xx`s).
+The first four are the *Mock Charging adapter's own vocabulary*. V1's `MockChargingAdapter` returns
+success by default; it produces one of these (or throws, for `SYSTEM_ERROR`) only when the schedule id
+is listed in the failure-injection config (see §7). The port contract and the CHECK constraint support
+them regardless, for whichever component next implements a real failure path. `SYSTEM_ERROR`'s
+`failure_reason` is always a fixed, generic sentence — never the underlying exception message or stack
+trace, which is logged server-side only (same principle as `GlobalExceptionHandler`'s handling of
+unexpected `5xx`s).
 
 ---
 
@@ -162,3 +164,43 @@ backoff state.
 - **No user-facing Mock Charging API.** The scheduler calls `ChargingExecutionService` in-process; there
   is no `/mock-charging/*` HTTP surface. Clients see the outcome through
   `ChargingSchedule.session` (`ChargingSessionSummary` in the API, null until the first attempt).
+- **Failures are opt-in, not random.** `MockChargingAdapter` always succeeds unless a schedule id is
+  explicitly listed in the failure-injection config (§7). V1 has no probabilistic failure rate — a
+  demo or test decides exactly which reservation fails and how.
+
+---
+
+## 7. Simulating failures (demo / test)
+
+`MockChargingAdapter` succeeds for every schedule by default. To exercise the `FAILED` states, the
+retry/backoff path, or the failure UI without a real charger, list a `charging_schedules` id under
+`wattpilot.charging.execution.mock.failures` (bound by `MockChargingProperties`):
+
+```yaml
+wattpilot:
+  charging:
+    execution:
+      mock:
+        failures:
+          12: CHARGER_UNAVAILABLE
+          15: SYSTEM_ERROR
+```
+
+The map value is a `ChargingFailureCode` and decides both the phase and the mechanism:
+
+| Injected code | Phase | Adapter does | Resulting schedule / session |
+|---|---|---|---|
+| `CHARGER_UNAVAILABLE` | start | returns `ExecutionOutcome.Failure` | `FAILED` / `FAILED(CHARGER_UNAVAILABLE)`, `started_at = null`, no retry |
+| `VEHICLE_DISCONNECTED` | start | returns `ExecutionOutcome.Failure` | `FAILED` / `FAILED(VEHICLE_DISCONNECTED)`, `started_at = null`, no retry |
+| `START_REJECTED` | start | returns `ExecutionOutcome.Failure` | `FAILED` / `FAILED(START_REJECTED)`, `started_at = null`, no retry |
+| `CHARGING_INTERRUPTED` | completion | returns `ExecutionOutcome.Failure` | reaches `IN_PROGRESS` / `STARTED` first, then `FAILED` / `FAILED(CHARGING_INTERRUPTED)` |
+| `SYSTEM_ERROR` | start | throws `MockChargingException` every call | bounded retry runs (§5), then `FAILED` / `FAILED(SYSTEM_ERROR)` once the budget is exhausted |
+
+`MISSED_EXECUTION_WINDOW` is **rejected** at startup if configured here — it describes a schedule that
+was never executed, which the adapter has no part in. To see it, simply let a `WAITING` schedule's
+window close before its start time is reached (or with the scheduler disabled).
+
+The injected `failure_reason` for a business failure is a fixed, generic sentence per code; the
+`SYSTEM_ERROR` reason is the same generic sentence `ChargingExecutionService` always uses. The config
+is empty in every committed profile — it is a per-environment / per-run override, not a product
+feature, so there is no HTTP endpoint and no persistence for it.

@@ -180,7 +180,7 @@ ChargingExecutionService     (com.wattpilot.charging.service — one schedule id
         ↓
 ChargingExecutionPort        (interface)
         ↓
-MockChargingAdapter          // V1, always succeeds
+MockChargingAdapter          // V1, succeeds unless a failure is injected by config
         ↓
 Manufacturer APIs            // Future
 ```
@@ -204,6 +204,8 @@ Every schedule id gets its **own transaction** (`REQUIRES_NEW`) inside `Charging
 Concurrency (a scheduler tick racing a user's cancel request, or two ticks touching the same schedule) is serialized with the same `SELECT ... FOR UPDATE` row-lock pattern `EvRepository` already uses, re-checking the expected status after acquiring the lock before making any change.
 
 On a successful completion, `actualEnergyKwh` / `actualCostNok` / `baselineCostNok` / `optimizedCostNok` / `estimatedSavingsNok` are derived from the **plan/slot snapshot taken at confirmation time** — never a fresh price lookup or a re-run of the optimizer. V1 mock charging always finishes exactly as planned, so there is no partial-charge simulation.
+
+`MockChargingAdapter` always succeeds unless a schedule id is listed in `wattpilot.charging.execution.mock.failures` (empty in every committed profile). That map assigns a `ChargingFailureCode` to a schedule so demos and integration tests can drive a specific `FAILED` outcome or the retry path deterministically — `SYSTEM_ERROR` makes the adapter throw (exercising the bounded retry), the others return a business failure on their phase. See `docs/charging-execution-states.md` §7.
 
 `GET /charging-schedules/{scheduleId}` and the list endpoint embed the schedule's `ChargingSessionSummary` (null until the first execution attempt) — there is no separate user-facing Mock Charging API or history endpoint in V1.
 

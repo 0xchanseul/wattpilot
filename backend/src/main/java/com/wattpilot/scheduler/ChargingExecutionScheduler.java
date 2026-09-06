@@ -60,18 +60,27 @@ public class ChargingExecutionScheduler {
         OffsetDateTime now = OffsetDateTime.now(clock);
         Limit limit = Limit.of(properties.batchSize());
 
-        process("complete",
+        log.debug("Charging execution tick at {}", now);
+
+        int completed = process("complete",
                 scheduleRepository.findReadyToCompleteIds(ChargingScheduleStatus.IN_PROGRESS, now, limit),
                 executionService::attemptComplete);
-        process("start",
+        int started = process("start",
                 scheduleRepository.findReadyToStartIds(ChargingScheduleStatus.WAITING, now, limit),
                 executionService::attemptStart);
-        process("missed",
+        int missed = process("missed",
                 scheduleRepository.findMissedIds(ChargingScheduleStatus.WAITING, now, limit),
                 executionService::markMissed);
+
+        // Only speak up on a tick that had work to do; an idle minute stays at DEBUG above.
+        if (completed + started + missed > 0) {
+            log.info("Charging execution tick processed {} schedule(s): start={}, complete={}, missed={}",
+                    completed + started + missed, started, completed, missed);
+        }
     }
 
-    private void process(String phase, List<Long> scheduleIds, Consumer<Long> action) {
+    /** @return the number of schedule ids this phase attempted (regardless of their individual outcome) */
+    private int process(String phase, List<Long> scheduleIds, Consumer<Long> action) {
         for (Long scheduleId : scheduleIds) {
             try {
                 action.accept(scheduleId);
@@ -79,5 +88,6 @@ public class ChargingExecutionScheduler {
                 log.error("Unexpected error in {} phase for charging schedule id={}", phase, scheduleId, e);
             }
         }
+        return scheduleIds.size();
     }
 }

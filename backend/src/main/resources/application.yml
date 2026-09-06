@@ -34,6 +34,19 @@ wattpilot:
       retry-initial-backoff: ${CHARGING_EXECUTION_RETRY_INITIAL_BACKOFF:PT1M}
       retry-backoff-multiplier: ${CHARGING_EXECUTION_RETRY_BACKOFF_MULTIPLIER:2.0}
 
+      # Demo/test-only Mock Charging failure injection. Empty by default: mock charging always
+      # succeeds. Map a charging-schedule id to the failure the adapter should simulate for it:
+      #   CHARGER_UNAVAILABLE | VEHICLE_DISCONNECTED | START_REJECTED - start-phase business failure,
+      #     the schedule ends FAILED immediately with no retry
+      #   CHARGING_INTERRUPTED - completion-phase business failure (schedule reaches IN_PROGRESS first)
+      #   SYSTEM_ERROR - the adapter throws on start, so the bounded retry above runs and the schedule
+      #     ends FAILED(SYSTEM_ERROR) once the budget is exhausted
+      # Set it per environment/profile (a Map does not override cleanly from a single env var):
+      # mock:
+      #   failures:
+      #     12: CHARGER_UNAVAILABLE
+      #     15: SYSTEM_ERROR
+
   electricity:
     collection:
       # Scheduled next-day price collection. Disabled for local development and tests

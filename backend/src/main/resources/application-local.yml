@@ -32,6 +32,9 @@ wattpilot:
       # data mid-assertion. Set CHARGING_EXECUTION_ENABLED=true (or override here) to exercise it
       # locally; integration tests that specifically target the scheduler enable it themselves.
       enabled: ${CHARGING_EXECUTION_ENABLED:false}
+      # To run the scheduler locally, or to inject a Mock Charging failure for a demo, use the
+      # git-ignored repository-root .env file (imported above) rather than editing this tracked file.
+      # See .env.example, "Mock Charging execution (optional overrides)".
 
   electricity:
     collection:
