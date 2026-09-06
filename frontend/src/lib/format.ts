@@ -74,3 +74,23 @@ const timeFormatter = new Intl.DateTimeFormat('en-GB', {
 export function formatTime(iso: string): string {
   return timeFormatter.format(new Date(iso))
 }
+
+/**
+ * Splits a charging window into a date label and a time range for display.
+ * When the window stays within one Oslo day the date is shown once; otherwise
+ * the date label spans both days.
+ */
+export function formatScheduleWindow(
+  startIso: string,
+  endIso: string,
+): { date: string; timeRange: string } {
+  const startDate = dateFormatter.format(new Date(startIso))
+  const endDate = dateFormatter.format(new Date(endIso))
+  if (startDate === endDate) {
+    return { date: startDate, timeRange: `${formatTime(startIso)} – ${formatTime(endIso)}` }
+  }
+  return {
+    date: `${startDate} – ${endDate}`,
+    timeRange: `${formatTime(startIso)} – ${formatTime(endIso)}`,
+  }
+}

@@ -13,6 +13,33 @@ export type ScheduleStatus =
   | 'CANCELLED'
   | 'FAILED'
 
+export type SessionStatus = 'STARTED' | 'COMPLETED' | 'FAILED' | 'CANCELLED'
+
+export type ChargingFailureCode =
+  | 'CHARGER_UNAVAILABLE'
+  | 'VEHICLE_DISCONNECTED'
+  | 'START_REJECTED'
+  | 'CHARGING_INTERRUPTED'
+  | 'MISSED_EXECUTION_WINDOW'
+  | 'SYSTEM_ERROR'
+
+/**
+ * A schedule's Mock Charging execution outcome. Null until the 1-minute execution scheduler makes
+ * its first attempt. `failureCode` / `failureReason` are set only when `status` is `FAILED`.
+ */
+export interface ChargingSessionSummary {
+  status: SessionStatus
+  startedAt: string | null
+  completedAt: string | null
+  actualEnergyKwh: number | null
+  actualCostNok: number | null
+  baselineCostNok: number | null
+  optimizedCostNok: number | null
+  estimatedSavingsNok: number | null
+  failureCode: ChargingFailureCode | null
+  failureReason: string | null
+}
+
 /** One consecutive price slot inside a continuous charging window. */
 export interface ChargingPlanSlot {
   startsAt: string
@@ -32,7 +59,7 @@ export interface ChargingCandidate {
   /** Grid-side energy over the window (battery target / efficiency). */
   expectedEnergyKwh: number
   estimatedCostNok: number
-  /** Cost of charging immediately from "now"; identical for every candidate. */
+  /** Reference cost at the window-average electricity price; identical for every candidate. */
   baselineCostNok: number
   /** baselineCostNok - estimatedCostNok. */
   expectedSavingsNok: number
@@ -95,6 +122,8 @@ export interface ChargingSchedule {
   baselineCostNok: number
   expectedSavingsNok: number
   slots: ChargingPlanSlot[]
+  /** Execution outcome; null while the schedule is still WAITING. */
+  session: ChargingSessionSummary | null
   createdAt: string
   updatedAt: string
 }

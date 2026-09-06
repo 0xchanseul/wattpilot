@@ -8,6 +8,7 @@ import { useEvQuery } from '@/features/ev/queries'
 import { ScheduleStatusBadge } from '@/features/charging/components/schedule-status-badge'
 import { ChargingSummaryCard } from '@/features/charging/components/charging-summary-card'
 import { useChargingScheduleQuery } from '@/features/charging/queries'
+import { chargingFailureText } from '@/features/charging/failure-copy'
 import { formatDateTime } from '@/lib/format'
 
 export function ChargingScheduleDetailPage() {
@@ -39,6 +40,15 @@ export function ChargingScheduleDetailPage() {
             </div>
             <ScheduleStatusBadge status={schedule.status} />
           </div>
+
+          {schedule.status === 'FAILED' && schedule.session ? (
+            <p className="text-destructive text-sm">
+              {chargingFailureText(
+                schedule.session.failureCode,
+                schedule.session.failureReason,
+              ) ?? 'Charging did not complete.'}
+            </p>
+          ) : null}
 
           {schedule.status === 'CREATED' ? (
             <Alert>

@@ -103,7 +103,7 @@ export function ChargingSummaryCard({
             }
           />
           <Fact label="Estimated cost" value={formatNok(estimatedCostNok)} />
-          <Fact label="If charged now" value={formatNok(baselineCostNok)} />
+          <Fact label="Typical-time cost" value={formatNok(baselineCostNok)} />
           <div className="space-y-0.5">
             <dt className="text-muted-foreground text-xs">Estimated savings</dt>
             <dd className={cn('font-medium', saves && 'text-chart-2')}>

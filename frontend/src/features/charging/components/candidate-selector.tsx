@@ -60,7 +60,7 @@ export function CandidateSelector({
                       <span className="text-foreground font-medium">
                         {formatNok(candidate.expectedSavingsNok)}
                       </span>{' '}
-                      vs. charging now
+                      vs. a typical charging time
                     </>
                   ) : null}
                 </div>

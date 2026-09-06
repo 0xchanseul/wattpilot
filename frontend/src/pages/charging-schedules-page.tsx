@@ -1,16 +1,16 @@
 import { useMemo } from 'react'
 import { Link } from 'react-router'
-import { CalendarClockIcon, PlusIcon } from 'lucide-react'
+import { CalendarClockIcon, CarIcon, ClockIcon, PlusIcon } from 'lucide-react'
 
 import { ApiErrorAlert } from '@/components/api-error-alert'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useEvsQuery } from '@/features/ev/queries'
 import { ScheduleStatusBadge } from '@/features/charging/components/schedule-status-badge'
 import { useChargingSchedulesQuery } from '@/features/charging/queries'
 import type { ChargingSchedule } from '@/features/charging/types'
-import { formatDateTime, formatNok } from '@/lib/format'
+import { formatDurationMinutes, formatNok, formatScheduleWindow } from '@/lib/format'
 
 const PAGE_SIZE = 100
 
@@ -74,17 +74,35 @@ export function ChargingSchedulesPage() {
 }
 
 function ScheduleCard({ schedule, evName }: { schedule: ChargingSchedule; evName: string }) {
+  const chargingWindow = formatScheduleWindow(schedule.scheduledStartAt, schedule.scheduledEndAt)
+  const durationMinutes =
+    (new Date(schedule.scheduledEndAt).getTime() - new Date(schedule.scheduledStartAt).getTime()) /
+    60_000
+
   return (
     <Link to={`/charging/schedules/${schedule.id}`} className="block h-full">
       <Card className="hover:border-ring h-full gap-3 transition-colors">
         <CardHeader>
           <div className="flex items-start justify-between gap-2">
-            <CardTitle>{evName}</CardTitle>
+            <div className="text-muted-foreground flex items-center gap-1.5 text-sm font-medium">
+              <CarIcon className="size-4 shrink-0" />
+              {evName}
+            </div>
             <ScheduleStatusBadge status={schedule.status} />
           </div>
-          <p className="text-muted-foreground text-sm">
-            {formatDateTime(schedule.scheduledStartAt)} → {formatDateTime(schedule.scheduledEndAt)}
-          </p>
+          <div className="mt-1 space-y-1">
+            <p className="text-foreground flex items-center gap-1.5 text-lg font-semibold tabular-nums">
+              <ClockIcon className="text-muted-foreground size-4 shrink-0" />
+              {chargingWindow.timeRange}
+              <span className="text-muted-foreground text-sm font-normal">
+                · {formatDurationMinutes(durationMinutes)}
+              </span>
+            </p>
+            <p className="text-muted-foreground flex items-center gap-1.5 text-sm">
+              <CalendarClockIcon className="size-3.5 shrink-0" />
+              {chargingWindow.date}
+            </p>
+          </div>
         </CardHeader>
         <CardContent className="text-muted-foreground text-sm">
           <dl className="grid grid-cols-2 gap-x-4 gap-y-1">
