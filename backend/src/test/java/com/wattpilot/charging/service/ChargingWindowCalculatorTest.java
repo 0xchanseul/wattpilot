@@ -40,8 +40,9 @@ class ChargingWindowCalculatorTest {
         assertThat(success.recommendedEndAt()).isEqualTo(at("22:30"));
         assertThat(success.estimatedCostNok()).isEqualByComparingTo("13.5000");
         assertThat(success.expectedEnergyKwh()).isEqualByComparingTo("25.00");
-        assertThat(success.baselineCostNok()).isEqualByComparingTo("20.1667");
-        assertThat(success.expectedSavingsNok()).isEqualByComparingTo("6.6667");
+        // Baseline = 25 kWh * time-weighted avg price over [18:20, 23:00] = 204/280 NOK/kWh.
+        assertThat(success.baselineCostNok()).isEqualByComparingTo("18.2143");
+        assertThat(success.expectedSavingsNok()).isEqualByComparingTo("4.7143");
 
         assertThat(success.slots()).hasSize(3);
         assertThat(success.slots().get(0).startsAt()).isEqualTo(at("20:00"));
@@ -67,6 +68,25 @@ class ChargingWindowCalculatorTest {
         assertThat(success.estimatedCostNok()).isEqualByComparingTo("12.5000");
         assertThat(success.baselineCostNok()).isEqualByComparingTo("12.5000");
         assertThat(success.expectedSavingsNok()).isEqualByComparingTo("0.0000");
+    }
+
+    @Test
+    void reportsPositiveSavingsForAnImmediateStartWhenNowIsBelowTheWindowAverage() {
+        // The cheapest window is the first two hours, i.e. "charge right now" - but it still beats the
+        // window-average price, so savings are positive rather than zero.
+        OptimizationResult result = calculator.optimize(
+                ev("10", "10"),
+                new BigDecimal("18"), // 18 / 9 = 2 hours
+                EFFICIENCY,
+                at("18:00"),
+                at("22:00"),
+                hourly("18:00", "0.40", "0.40", "1.00", "1.00"));
+
+        OptimizationResult.Success success = success(result);
+        assertThat(success.recommendedStartAt()).isEqualTo(at("18:00"));
+        assertThat(success.estimatedCostNok()).isEqualByComparingTo("8.0000");
+        assertThat(success.baselineCostNok()).isEqualByComparingTo("14.0000"); // 20 kWh * avg 0.70
+        assertThat(success.expectedSavingsNok()).isEqualByComparingTo("6.0000");
     }
 
     @Test
@@ -185,8 +205,9 @@ class ChargingWindowCalculatorTest {
     }
 
     @Test
-    void fallsBackToZeroSavingsWhenTheImmediateWindowHasNoPriceData() {
-        // Prices only start at 19:00, so charging "right now" from 18:20 cannot be priced.
+    void averagesTheBaselineOverTheCoveredPartOfTheWindowWhenEarlyHoursHaveNoPriceData() {
+        // Prices only start at 19:00; the [18:20, 19:00] head of the window is unpriced and simply
+        // left out of the baseline average instead of collapsing savings to zero.
         OptimizationResult result = calculator.optimize(
                 ev("10", "10"),
                 new BigDecimal("9"), // 60 minutes
@@ -197,8 +218,8 @@ class ChargingWindowCalculatorTest {
 
         OptimizationResult.Success success = success(result);
         assertThat(success.recommendedStartAt()).isEqualTo(at("20:00"));
-        assertThat(success.baselineCostNok()).isEqualByComparingTo(success.estimatedCostNok());
-        assertThat(success.expectedSavingsNok()).isEqualByComparingTo("0.0000");
+        assertThat(success.baselineCostNok()).isEqualByComparingTo("5.0000"); // 10 kWh * avg(0.50, 0.40, 0.60)
+        assertThat(success.expectedSavingsNok()).isEqualByComparingTo("1.0000"); // 5.0000 - 10 * 0.40
     }
 
     @Test

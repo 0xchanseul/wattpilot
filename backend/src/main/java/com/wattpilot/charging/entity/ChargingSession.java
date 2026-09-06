@@ -58,7 +58,7 @@ public class ChargingSession {
     @Column(name = "actual_cost_nok", precision = 12, scale = 4)
     private BigDecimal actualCostNok;
 
-    /** Cost of charging immediately from "now", copied from the plan snapshot. Set only on completion. */
+    /** Window-average reference cost, copied from the plan snapshot. Set only on completion. */
     @Column(name = "baseline_cost_nok", precision = 12, scale = 4)
     private BigDecimal baselineCostNok;
 

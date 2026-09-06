@@ -794,7 +794,10 @@ components:
         baselineCostNok:
           type: number
           format: double
-          description: Cost of charging immediately from "now"; the same for every candidate.
+          description: >-
+            Reference cost: this window's energy priced at the time-weighted average electricity price
+            across the whole allowed window ("now" to requiredCompletionAt) - the cost of charging at
+            a typical, unplanned moment. The same for every candidate.
         expectedSavingsNok: { type: number, format: double, description: baselineCostNok - estimatedCostNok. }
         slots:
           type: array
@@ -881,7 +884,9 @@ components:
         baselineCostNok:
           type: number
           format: double
-          description: Cost of charging immediately from the plan's earliestStartAt.
+          description: >-
+            Reference cost: the window's energy priced at the time-weighted average electricity price
+            across the allowed window (earliestStartAt to requiredCompletionAt).
         expectedSavingsNok: { type: number, format: double }
         slots:
           type: array
@@ -939,7 +944,7 @@ components:
         calculatedEnergyKwh: { type: number, format: double, description: Battery-side energy to add. }
         expectedEnergyKwh: { type: number, format: double, description: Grid-side energy drawn (includes efficiency loss). }
         estimatedCostNok: { type: number, format: double }
-        baselineCostNok: { type: number, format: double, description: Cost of charging immediately from "now". }
+        baselineCostNok: { type: number, format: double, description: Reference cost at the window-average electricity price. }
         expectedSavingsNok: { type: number, format: double, description: baselineCostNok - estimatedCostNok. }
         slots:
           type: array
@@ -969,7 +974,7 @@ components:
         completedAt: { type: string, format: date-time, nullable: true }
         actualEnergyKwh: { type: number, format: double, nullable: true }
         actualCostNok: { type: number, format: double, nullable: true }
-        baselineCostNok: { type: number, format: double, nullable: true, description: Cost of charging immediately from "now". }
+        baselineCostNok: { type: number, format: double, nullable: true, description: Reference cost at the window-average electricity price. }
         optimizedCostNok: { type: number, format: double, nullable: true }
         estimatedSavingsNok: { type: number, format: double, nullable: true }
         failureCode: { allOf: [{ $ref: '#/components/schemas/FailureCode' }], nullable: true }

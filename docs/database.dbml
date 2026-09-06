@@ -151,6 +151,8 @@ Table charging_plans {
   recommended_end_at timestamptz
   expected_energy_kwh decimal(8,2)
   estimated_cost_nok decimal(12,4)
+  // Reference cost: the window's energy priced at the time-weighted average electricity price across
+  // the allowed window [earliest_start_at, required_completion_at]. expected_savings = baseline - estimated.
   baseline_cost_nok decimal(12,4)
   expected_savings_nok decimal(12,4)
 
@@ -288,7 +290,7 @@ Table charging_sessions {
   actual_energy_kwh decimal(8,2)
   actual_cost_nok decimal(12,4)
 
-  baseline_cost_nok decimal(12,4) [note: 'Estimated cost if charging started immediately']
+  baseline_cost_nok decimal(12,4) [note: 'Reference cost at the window-average electricity price, from the plan snapshot']
   optimized_cost_nok decimal(12,4)
   estimated_savings_nok decimal(12,4)
 

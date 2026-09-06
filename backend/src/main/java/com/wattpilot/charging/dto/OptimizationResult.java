@@ -27,8 +27,9 @@ public sealed interface OptimizationResult {
      * @param expectedEnergyKwh         grid-side energy drawn over the window
      *                                  ({@code calculatedEnergyKwh / efficiency}); equals the sum of the slot energies
      * @param estimatedCostNok          cost of the recommended window; sum of the slot costs
-     * @param baselineCostNok           cost of charging immediately from the earliest start; falls back
-     *                                  to {@code estimatedCostNok} when that immediate window has no price data
+     * @param baselineCostNok           the window's billed energy priced at the time-weighted average
+     *                                  price across the whole allowed window — the cost of charging at
+     *                                  a typical, unplanned moment rather than the optimized window
      * @param expectedSavingsNok        {@code baselineCostNok - estimatedCostNok}
      * @param slots                     consecutive price slots making up the window, first/last possibly partial
      */

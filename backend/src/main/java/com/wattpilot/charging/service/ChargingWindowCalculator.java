@@ -42,6 +42,12 @@ import java.util.function.Function;
  * <p><b>Efficiency.</b> The configured efficiency only lengthens the duration. The billed energy and
  * every cost are computed on the full charger draw {@code min(maxAcChargingPowerKw,
  * defaultChargerPowerKw)}, so the slot energies sum to {@code requiredEnergyKwh / efficiency}.
+ *
+ * <p><b>Savings baseline.</b> {@code baselineCostNok} prices the same billed energy at the time-
+ * weighted average price across the whole allowed window {@code [earliestStart, deadline]} — what
+ * charging at a typical, unplanned moment in the window would cost. {@code expectedSavingsNok} is
+ * that baseline minus the window's own cost, so charging that has to start immediately no longer
+ * reports zero savings when "now" is already below the window average.
  */
 @Component
 public class ChargingWindowCalculator {
@@ -110,11 +116,12 @@ public class ChargingWindowCalculator {
                     "No gap-free run of stored prices is long enough to charge within the window.");
         }
 
-        List<ChargingPlanSlot> immediateSlots =
-                buildSlots(earliestStart, earliestStart.plus(chargingDuration), deliveredPowerKw, prices);
         BigDecimal cheapestCost = windows.stream().map(Window::cost).min(Comparator.naturalOrder()).orElseThrow();
-        BigDecimal baselineCost = immediateSlots != null
-                ? sum(immediateSlots, ChargingPlanSlot::expectedCostNok, COST_SCALE)
+        BigDecimal billedEnergyKwh = deliveredPowerKw.multiply(BigDecimal.valueOf(durationMinutes))
+                .divide(MINUTES_PER_HOUR, INTERNAL_SCALE, RoundingMode.HALF_UP);
+        BigDecimal averageUnitPrice = windowAverageUnitPrice(earliestStart, deadline, prices);
+        BigDecimal baselineCost = averageUnitPrice != null
+                ? averageUnitPrice.multiply(billedEnergyKwh).setScale(COST_SCALE, RoundingMode.HALF_UP)
                 : cheapestCost;
 
         windows.sort(Comparator.comparing(Window::cost).thenComparing(window -> window.start().toInstant()));
@@ -245,6 +252,37 @@ public class ChargingWindowCalculator {
 
     private static OffsetDateTime earlier(OffsetDateTime a, OffsetDateTime b) {
         return a.toInstant().isBefore(b.toInstant()) ? a : b;
+    }
+
+    private static OffsetDateTime later(OffsetDateTime a, OffsetDateTime b) {
+        return a.toInstant().isAfter(b.toInstant()) ? a : b;
+    }
+
+    /**
+     * Time-weighted average electricity price over the allowed window {@code [windowStart, windowEnd]},
+     * the reference unit price for {@code baselineCostNok}. Only the part of the window that stored
+     * prices actually cover is averaged; returns {@code null} only when no price overlaps the window
+     * at all, which the feasibility checks above have already ruled out.
+     */
+    private static BigDecimal windowAverageUnitPrice(OffsetDateTime windowStart, OffsetDateTime windowEnd,
+                                                     List<PricePoint> prices) {
+        BigDecimal weightedPriceMinutes = BigDecimal.ZERO;
+        long coveredMinutes = 0;
+        for (PricePoint price : prices) {
+            OffsetDateTime overlapStart = later(price.startsAt(), windowStart);
+            OffsetDateTime overlapEnd = earlier(price.endsAt(), windowEnd);
+            long minutes = Duration.between(overlapStart, overlapEnd).toMinutes();
+            if (minutes <= 0) {
+                continue;
+            }
+            weightedPriceMinutes = weightedPriceMinutes.add(
+                    price.pricePerKwh().multiply(BigDecimal.valueOf(minutes)));
+            coveredMinutes += minutes;
+        }
+        if (coveredMinutes == 0) {
+            return null;
+        }
+        return weightedPriceMinutes.divide(BigDecimal.valueOf(coveredMinutes), INTERNAL_SCALE, RoundingMode.HALF_UP);
     }
 
     private static BigDecimal sum(List<ChargingPlanSlot> slots,

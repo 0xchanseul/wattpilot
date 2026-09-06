@@ -285,7 +285,7 @@ class ChargingScheduleApiIntegrationTest {
     }
 
     private OffsetDateTime seedHourlyPrices(PriceArea area, String... pricesPerKwh) {
-        // Start at the current hour so "charge right now" (the baseline) is itself priced.
+        // Start at the current hour so the whole [now, deadline] window is covered by prices.
         OffsetDateTime windowStart = OffsetDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.HOURS);
         List<PriceSlot> slots = new ArrayList<>();
         OffsetDateTime cursor = windowStart;
