@@ -35,3 +35,6 @@ replay_pid*
 *.env
 !.env.example
 !*.env.example
+
+# Claude Code personal settings
+.claude/settings.local.json
