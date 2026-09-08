@@ -124,7 +124,8 @@ class ChargingScheduleApiIntegrationTest {
         mockMvc.perform(get("/api/v1/charging-schedules")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content[?(@.id == %d)]".formatted(scheduleId)).isNotEmpty());
+                .andExpect(jsonPath("$.upcoming[?(@.id == %d)]".formatted(scheduleId)).isNotEmpty())
+                .andExpect(jsonPath("$.recentActivity").isArray());
         mockMvc.perform(get("/api/v1/charging-plans/" + planId)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .andExpect(status().isOk())

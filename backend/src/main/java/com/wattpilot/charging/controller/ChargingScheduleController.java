@@ -1,16 +1,13 @@
 package com.wattpilot.charging.controller;
 
 import com.wattpilot.charging.dto.ChargingScheduleResponse;
+import com.wattpilot.charging.dto.ChargingSchedulesOverviewResponse;
 import com.wattpilot.charging.dto.CreateChargingScheduleRequest;
 import com.wattpilot.charging.service.ChargingScheduleService;
-import com.wattpilot.common.response.PageResponse;
 import com.wattpilot.common.security.AuthenticatedUser;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
-import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -43,12 +40,11 @@ public class ChargingScheduleController {
         return ResponseEntity.created(URI.create("/api/v1/charging-schedules/" + schedule.id())).body(schedule);
     }
 
-    @Operation(summary = "List my charging schedules")
+    @Operation(summary = "Get my charging schedules overview (upcoming, in progress, recent activity)")
     @GetMapping
-    public ResponseEntity<PageResponse<ChargingScheduleResponse>> listChargingSchedules(
-            @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
-            @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
-        return ResponseEntity.ok(chargingScheduleService.listSchedules(authenticatedUser.userId(), pageable));
+    public ResponseEntity<ChargingSchedulesOverviewResponse> getChargingSchedulesOverview(
+            @AuthenticationPrincipal AuthenticatedUser authenticatedUser) {
+        return ResponseEntity.ok(chargingScheduleService.getSchedulesOverview(authenticatedUser.userId()));
     }
 
     @Operation(summary = "Get a charging schedule")

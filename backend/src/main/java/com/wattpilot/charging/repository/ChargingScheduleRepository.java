@@ -4,8 +4,6 @@ import com.wattpilot.charging.entity.ChargingSchedule;
 import com.wattpilot.charging.entity.ChargingScheduleStatus;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Limit;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
@@ -18,7 +16,33 @@ import java.util.Optional;
 
 public interface ChargingScheduleRepository extends JpaRepository<ChargingSchedule, Long> {
 
-    Page<ChargingSchedule> findByChargingPlanIdIn(Collection<Long> chargingPlanIds, Pageable pageable);
+    /**
+     * The Schedules overview's {@code upcoming} + {@code inProgress} rows: every non-terminal schedule
+     * for the user's plans, earliest start first. Callers split it by status.
+     */
+    @Query("""
+            select s from ChargingSchedule s
+            where s.chargingPlanId in :planIds and s.status in :statuses
+            order by s.scheduledStartAt asc
+            """)
+    List<ChargingSchedule> findByPlanIdsAndStatusInOrderByScheduledStartAt(
+            @Param("planIds") Collection<Long> planIds,
+            @Param("statuses") Collection<ChargingScheduleStatus> statuses);
+
+    /**
+     * The Schedules overview's {@code recentActivity} tail: the most recently finished
+     * {@code COMPLETED}/{@code FAILED} schedules for the user's plans, newest transition first. The
+     * {@code Limit} is supplied by the caller and is a deliberate role boundary — see
+     * {@link com.wattpilot.charging.dto.ChargingSchedulesOverviewResponse}.
+     */
+    @Query("""
+            select s from ChargingSchedule s
+            where s.chargingPlanId in :planIds and s.status in :statuses
+            order by s.updatedAt desc, s.id desc
+            """)
+    List<ChargingSchedule> findRecentActivity(@Param("planIds") Collection<Long> planIds,
+                                              @Param("statuses") Collection<ChargingScheduleStatus> statuses,
+                                              Limit limit);
 
     /**
      * Row lock for a state transition (execution attempt or user cancellation), so a concurrent

@@ -2,7 +2,9 @@ package com.wattpilot.charging.service;
 
 import com.wattpilot.charging.dto.ChargingCandidate;
 import com.wattpilot.charging.dto.ChargingCandidatesResult;
+import com.wattpilot.charging.dto.ChargingScheduleRecentActivity;
 import com.wattpilot.charging.dto.ChargingScheduleResponse;
+import com.wattpilot.charging.dto.ChargingSchedulesOverviewResponse;
 import com.wattpilot.charging.dto.CreateChargingScheduleRequest;
 import com.wattpilot.charging.dto.EvSnapshot;
 import com.wattpilot.charging.dto.OptimizationCommand;
@@ -17,13 +19,11 @@ import com.wattpilot.charging.repository.ChargingScheduleRepository;
 import com.wattpilot.charging.repository.ChargingSessionRepository;
 import com.wattpilot.common.exception.BusinessException;
 import com.wattpilot.common.exception.ErrorCode;
-import com.wattpilot.common.response.PageResponse;
 import com.wattpilot.electricity.entity.ElectricityPrice;
 import com.wattpilot.electricity.service.ElectricityPriceService;
 import com.wattpilot.ev.entity.Ev;
 import com.wattpilot.ev.service.EvService;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Limit;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,6 +33,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Confirms a previewed charging candidate: re-runs the calculation against the latest prices, matches
@@ -50,6 +51,19 @@ public class ChargingScheduleService {
     private static final Set<ChargingScheduleStatus> ACTIVE_STATUSES = Set.of(
             ChargingScheduleStatus.WAITING,
             ChargingScheduleStatus.IN_PROGRESS);
+
+    /** {@code recentActivity} statuses for the Schedules overview. */
+    private static final Set<ChargingScheduleStatus> TERMINAL_ACTIVITY_STATUSES = Set.of(
+            ChargingScheduleStatus.COMPLETED,
+            ChargingScheduleStatus.FAILED);
+
+    /**
+     * How many finished charges the Schedules overview keeps in {@code recentActivity}. This is a role
+     * boundary between Schedules (current/near-future operations) and the charging-history endpoints
+     * (the full record of past charges), not a performance limit — see
+     * {@link ChargingSchedulesOverviewResponse}.
+     */
+    public static final int RECENT_ACTIVITY_LIMIT = 5;
 
     private final ChargingOptimizationService optimizationService;
     private final ChargingCandidateSelector candidateSelector;
@@ -141,31 +155,57 @@ public class ChargingScheduleService {
                 slotRepository.findByChargingPlanIdOrderBySequenceNoAsc(plan.getId())), session);
     }
 
+    /**
+     * The Schedules screen payload: {@code upcoming} + {@code inProgress} (full schedule views) and a
+     * short {@code recentActivity} tail of the last {@link #RECENT_ACTIVITY_LIMIT} finished charges.
+     * Finished charges are not accumulated here — that is the charging-history endpoints' role.
+     */
     @Transactional(readOnly = true)
-    public PageResponse<ChargingScheduleResponse> listSchedules(Long userId, Pageable pageable) {
+    public ChargingSchedulesOverviewResponse getSchedulesOverview(Long userId) {
         List<Long> planIds = planRepository.findIdsByUserId(userId);
         if (planIds.isEmpty()) {
-            return PageResponse.from(Page.empty(pageable));
+            return ChargingSchedulesOverviewResponse.empty();
         }
 
-        Page<ChargingSchedule> page = scheduleRepository.findByChargingPlanIdIn(planIds, pageable);
-        List<Long> pagePlanIds = page.getContent().stream().map(ChargingSchedule::getChargingPlanId).toList();
-        List<Long> pageScheduleIds = page.getContent().stream().map(ChargingSchedule::getId).toList();
+        List<ChargingSchedule> active = scheduleRepository
+                .findByPlanIdsAndStatusInOrderByScheduledStartAt(planIds, ACTIVE_STATUSES);
+        List<ChargingSchedule> recent = scheduleRepository
+                .findRecentActivity(planIds, TERMINAL_ACTIVITY_STATUSES, Limit.of(RECENT_ACTIVITY_LIMIT));
 
-        Map<Long, ChargingPlan> plansById = planRepository.findAllById(pagePlanIds).stream()
+        List<ChargingSchedule> all = Stream.concat(active.stream(), recent.stream()).toList();
+        List<Long> allPlanIds = all.stream().map(ChargingSchedule::getChargingPlanId).distinct().toList();
+        List<Long> allScheduleIds = all.stream().map(ChargingSchedule::getId).toList();
+
+        Map<Long, ChargingPlan> plansById = planRepository.findAllById(allPlanIds).stream()
                 .collect(Collectors.toMap(ChargingPlan::getId, Function.identity()));
         Map<Long, List<ChargingPlanSlot>> slotsByPlan = slotRepository
-                .findByChargingPlanIdInOrderByChargingPlanIdAscSequenceNoAsc(pagePlanIds).stream()
+                .findByChargingPlanIdInOrderByChargingPlanIdAscSequenceNoAsc(
+                        active.stream().map(ChargingSchedule::getChargingPlanId).distinct().toList())
+                .stream()
                 .collect(Collectors.groupingBy(ChargingPlanSlot::getChargingPlanId));
-        Map<Long, ChargingSession> sessionsBySchedule = sessionRepository.findByChargingScheduleIdIn(pageScheduleIds)
+        Map<Long, ChargingSession> sessionsBySchedule = sessionRepository.findByChargingScheduleIdIn(allScheduleIds)
                 .stream()
                 .collect(Collectors.toMap(ChargingSession::getChargingScheduleId, Function.identity()));
 
-        return PageResponse.from(page.map(schedule -> ChargingScheduleResponse.of(
-                schedule,
-                plansById.get(schedule.getChargingPlanId()),
-                ChargingSlotMapper.toDtos(slotsByPlan.getOrDefault(schedule.getChargingPlanId(), List.of())),
-                sessionsBySchedule.get(schedule.getId()))));
+        List<ChargingScheduleResponse> activeViews = active.stream()
+                .map(schedule -> ChargingScheduleResponse.of(
+                        schedule,
+                        plansById.get(schedule.getChargingPlanId()),
+                        ChargingSlotMapper.toDtos(slotsByPlan.getOrDefault(schedule.getChargingPlanId(), List.of())),
+                        sessionsBySchedule.get(schedule.getId())))
+                .toList();
+
+        List<ChargingScheduleRecentActivity> recentActivity = recent.stream()
+                .map(schedule -> ChargingScheduleRecentActivity.of(
+                        schedule,
+                        plansById.get(schedule.getChargingPlanId()),
+                        sessionsBySchedule.get(schedule.getId())))
+                .toList();
+
+        return new ChargingSchedulesOverviewResponse(
+                activeViews.stream().filter(view -> view.status() == ChargingScheduleStatus.WAITING).toList(),
+                activeViews.stream().filter(view -> view.status() == ChargingScheduleStatus.IN_PROGRESS).toList(),
+                recentActivity);
     }
 
     /** Cancels a schedule that has not started yet. Any other status is reported as a 409 conflict. */
