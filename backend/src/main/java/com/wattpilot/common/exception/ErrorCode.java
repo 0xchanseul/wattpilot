@@ -38,6 +38,9 @@ public enum ErrorCode {
     // the same way so the API cannot be used to probe ids.
     CHARGING_PLAN_NOT_FOUND(HttpStatus.NOT_FOUND, "Charging plan not found."),
     CHARGING_SCHEDULE_NOT_FOUND(HttpStatus.NOT_FOUND, "Charging schedule not found."),
+    // A charging-history entry (an executed session) that does not exist, is owned by another
+    // account, or is not a terminal COMPLETED/FAILED session: all reported the same way.
+    CHARGING_HISTORY_NOT_FOUND(HttpStatus.NOT_FOUND, "Charging history entry not found."),
 
     // A well-formed charging request that cannot produce any recommendation. The three cases stay
     // distinct so the client can pick the right guidance ("choose a later deadline" vs "prices for

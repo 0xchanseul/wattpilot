@@ -22,6 +22,7 @@ tags:
   - { name: Electricity Price, description: Norwegian hourly electricity prices }
   - { name: Charging Optimization, description: Charging plan optimization and calculated recommendations }
   - { name: Scheduler, description: Charging schedule lifecycle, mock-charging execution, and cancellation }
+  - { name: Charging History, description: Executed charging results and savings performance }
   - { name: Savings, description: Cost and savings summaries }
 
 paths:
@@ -369,17 +370,24 @@ paths:
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
     get:
       tags: [Scheduler]
-      summary: List my charging schedules
-      operationId: listChargingSchedules
-      parameters:
-        - $ref: '#/components/parameters/Page'
-        - $ref: '#/components/parameters/Size'
+      summary: Get my charging schedules overview
+      description: |
+        The Schedules screen payload — current and near-future reservations, plus a short tail of what
+        just happened. It is **not** paginated and does not accumulate finished charges: browsing the
+        full record of past charges is `GET /charging-history`.
+
+        - `upcoming` — `WAITING` reservations, earliest start first. Full schedule views (with slots).
+        - `inProgress` — reservations currently being executed by Mock Charging. Full schedule views.
+        - `recentActivity` — the last 5 `COMPLETED`/`FAILED` results, most recently finished first. A
+          slim view: no slots or cost picture. The cap is a role boundary between Schedules and
+          Charging History, not a page size.
+      operationId: getChargingSchedulesOverview
       responses:
         '200':
-          description: Schedule page, newest first
+          description: Charging schedules overview
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/ChargingSchedulePage' }
+              schema: { $ref: '#/components/schemas/ChargingSchedulesOverview' }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
   /charging-schedules/{scheduleId}:
@@ -420,6 +428,73 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+
+  /charging-history:
+    get:
+      tags: [Charging History]
+      summary: List my charging history with savings totals
+      description: |
+        Executed charging sessions owned by the caller, newest first by execution time, plus a
+        `summary` header of realized totals. Only `COMPLETED` and `FAILED` sessions are history: a
+        schedule still `WAITING`, one currently charging (session `STARTED`), and a reservation
+        cancelled before it ever ran are excluded — the Schedules overview shows those.
+
+        The list ordering is fixed server-side and a `sort` parameter is ignored. `evName` is the
+        snapshot taken when the schedule was confirmed, so it is unaffected by a later EV rename or
+        deactivation.
+
+        The `summary` covers every `COMPLETED` + `FAILED` session in scope — it respects `evId` but
+        ignores `status` and pagination. Its energy and savings totals are realized figures, summed
+        over the `COMPLETED` sessions only.
+      operationId: listChargingHistory
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+        - name: evId
+          in: query
+          description: Restrict the list and the summary to one EV.
+          schema: { type: integer, format: int64, minimum: 1 }
+        - name: status
+          in: query
+          description: >-
+            Restrict the list to a single outcome. Only `COMPLETED` and `FAILED` are meaningful; any
+            other value (e.g. `STARTED`) returns an empty list. Does not affect `summary`.
+          schema: { $ref: '#/components/schemas/SessionStatus' }
+      responses:
+        '200':
+          description: Charging history list with summary
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChargingHistoryList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /charging-history/{sessionId}:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    get:
+      tags: [Charging History]
+      summary: Get one charging-history entry (the charging receipt)
+      description: |
+        The drill-down behind a history list item: the charging conditions, the optimizer's plan and
+        its per-hour breakdown, and the realized outcome — kept in separate groups so a plan estimate
+        is never shown as a realized result.
+
+        Works only for a `COMPLETED` or `FAILED` session; an unknown id, a session owned by another
+        account, and a still-running (`STARTED`) session all return 404.
+
+        `plannedSlots` are the plan's per-hour figures from `charging_plan_slots` (`plannedEnergyKwh`,
+        `expectedCostNok`, `pricePerKwh`) — V1 stores no per-hour execution result, so there is no
+        per-slot "actual". A `FAILED` entry still carries the full plan (the plan succeeded — only the
+        execution failed) but no realized figures.
+      operationId: getChargingHistoryEntry
+      responses:
+        '200':
+          description: Charging-history entry
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChargingHistoryDetail' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
 
   /savings/summary:
     get:
@@ -528,6 +603,11 @@ components:
       schema: { type: integer, format: int64, minimum: 1 }
     ScheduleId:
       name: scheduleId
+      in: path
+      required: true
+      schema: { type: integer, format: int64, minimum: 1 }
+    SessionId:
+      name: sessionId
       in: path
       required: true
       schema: { type: integer, format: int64, minimum: 1 }
@@ -980,6 +1060,109 @@ components:
         failureCode: { allOf: [{ $ref: '#/components/schemas/FailureCode' }], nullable: true }
         failureReason: { type: string, nullable: true }
 
+    ChargingHistorySummary:
+      type: object
+      required: [totalSessions, successRate, totalEnergyKwh, totalSavingsNok]
+      description: |
+        Realized totals over every COMPLETED + FAILED session in scope (respects `evId`, ignores the
+        list's `status` filter and pagination). `totalEnergyKwh` and `totalSavingsNok` sum over the
+        COMPLETED sessions only; `totalSavingsNok` uses `baselineCostNok - actualCostNok` (realized),
+        never the plan estimate.
+      properties:
+        totalSessions: { type: integer, format: int64, minimum: 0, description: COMPLETED + FAILED count. }
+        successRate: { type: number, format: double, minimum: 0, maximum: 100, description: COMPLETED as a percentage of totalSessions, one decimal. }
+        totalEnergyKwh: { type: number, format: double, minimum: 0 }
+        totalSavingsNok: { type: number, format: double }
+
+    ChargingHistoryList:
+      type: object
+      required: [summary, content, page]
+      properties:
+        summary: { $ref: '#/components/schemas/ChargingHistorySummary' }
+        content: { type: array, items: { $ref: '#/components/schemas/ChargingHistoryItem' } }
+        page: { $ref: '#/components/schemas/PageMetadata' }
+
+    ChargingHistoryItem:
+      type: object
+      required: [sessionId, scheduleId, evId, evName, status]
+      description: |
+        One executed charging session in the caller's history. Reached by joining the session to its
+        schedule and plan; the plan carries `evName` as it was when the schedule was confirmed.
+
+        Planned vs. realized — all figures are non-null only for a `COMPLETED` session (a `FAILED`
+        session carries `failureCode` / `failureReason` instead, and a missed or start-rejected charge
+        also has no `startedAt`):
+          - `optimizedCostNok` — the optimizer's expected cost for the chosen window (plan snapshot).
+          - `estimatedSavingsNok` — `baselineCostNok - optimizedCostNok`: the saving the plan predicted.
+          - `actualEnergyKwh` / `actualCostNok` — the realized outcome recorded when the session completed.
+          - `realizedSavingsNok` — `baselineCostNok - actualCostNok`: the saving actually delivered.
+
+        In V1 mock charging finishes exactly as planned, so `optimizedCostNok == actualCostNok` and
+        the two savings are equal; they stay distinct for the day real charging can under-deliver.
+      properties:
+        sessionId: { type: integer, format: int64, minimum: 1 }
+        scheduleId: { type: integer, format: int64, minimum: 1 }
+        evId: { type: integer, format: int64, minimum: 1 }
+        evName: { type: string }
+        status: { $ref: '#/components/schemas/SessionStatus' }
+        startedAt: { type: string, format: date-time, nullable: true }
+        completedAt: { type: string, format: date-time, nullable: true }
+        baselineCostNok: { type: number, format: double, nullable: true, description: Reference cost at the window-average electricity price. }
+        optimizedCostNok: { type: number, format: double, nullable: true }
+        estimatedSavingsNok: { type: number, format: double, nullable: true, description: baselineCostNok - optimizedCostNok (the plan's prediction). }
+        actualEnergyKwh: { type: number, format: double, nullable: true }
+        actualCostNok: { type: number, format: double, nullable: true }
+        realizedSavingsNok: { type: number, format: double, nullable: true, description: baselineCostNok - actualCostNok (delivered). }
+        failureCode: { allOf: [{ $ref: '#/components/schemas/FailureCode' }], nullable: true }
+        failureReason: { type: string, nullable: true }
+
+    ChargingHistoryDetail:
+      type: object
+      required: [sessionId, scheduleId, planId, evId, evSnapshot, startBatteryPercent, targetBatteryPercent, priceArea, status, plannedSlots]
+      description: |
+        The "charging receipt" for one executed session. Three groups, deliberately separate:
+          - Conditions — what the user asked for (`startBatteryPercent`, `targetBatteryPercent`,
+            `priceArea`, `earliestStartAt`, `requiredCompletionAt`) and the EV snapshot.
+          - Plan — what the optimizer recommended (`recommendedStartAt`/`recommendedEndAt`,
+            `calculatedEnergyKwh` battery-side, `plannedEnergyKwh` grid-side, `optimizedCostNok`,
+            `baselineCostNok`, `estimatedSavingsNok`) plus the per-hour `plannedSlots`. Present for
+            every entry, including a `FAILED` one.
+          - Actual — the realized outcome (`actualEnergyKwh`, `actualCostNok`, `realizedSavingsNok` =
+            `baselineCostNok - actualCostNok`). Non-null only for a `COMPLETED` session.
+        `plannedSlots` are plan figures from `charging_plan_slots`, never a per-hour execution result.
+      properties:
+        sessionId: { type: integer, format: int64, minimum: 1 }
+        scheduleId: { type: integer, format: int64, minimum: 1 }
+        planId: { type: integer, format: int64, minimum: 1 }
+        evId: { type: integer, format: int64, minimum: 1 }
+        evSnapshot: { $ref: '#/components/schemas/EvSnapshot' }
+        startBatteryPercent: { type: number, format: double }
+        targetBatteryPercent: { type: number, format: double }
+        priceArea: { $ref: '#/components/schemas/PriceArea' }
+        earliestStartAt: { type: string, format: date-time }
+        requiredCompletionAt: { type: string, format: date-time }
+        recommendedStartAt: { type: string, format: date-time }
+        recommendedEndAt: { type: string, format: date-time }
+        calculatedEnergyKwh: { type: number, format: double, description: Battery-side energy added. }
+        effectiveChargingPowerKw: { type: number, format: double }
+        estimatedDurationMinutes: { type: integer }
+        plannedEnergyKwh: { type: number, format: double, description: Grid-side energy the plan drew (includes efficiency loss). }
+        optimizedCostNok: { type: number, format: double }
+        baselineCostNok: { type: number, format: double }
+        estimatedSavingsNok: { type: number, format: double, description: baselineCostNok - optimizedCostNok. }
+        status: { $ref: '#/components/schemas/SessionStatus' }
+        startedAt: { type: string, format: date-time, nullable: true }
+        completedAt: { type: string, format: date-time, nullable: true }
+        actualEnergyKwh: { type: number, format: double, nullable: true }
+        actualCostNok: { type: number, format: double, nullable: true }
+        realizedSavingsNok: { type: number, format: double, nullable: true, description: baselineCostNok - actualCostNok; COMPLETED only. }
+        failureCode: { allOf: [{ $ref: '#/components/schemas/FailureCode' }], nullable: true }
+        failureReason: { type: string, nullable: true }
+        plannedSlots:
+          type: array
+          description: The plan's per-hour figures, calculation order. Planned, not a per-hour actual.
+          items: { $ref: '#/components/schemas/ChargingPlanSlot' }
+
     SavingsSummary:
       type: object
       required: [from, to, currency, completedSessionCount, totalEnergyKwh, optimizedCostNok, baselineCostNok, totalSavingsNok, savingsRatePercent]
@@ -1032,12 +1215,35 @@ components:
         content: { type: array, items: { $ref: '#/components/schemas/ChargingPlan' } }
         page: { $ref: '#/components/schemas/PageMetadata' }
 
-    ChargingSchedulePage:
+    ChargingSchedulesOverview:
       type: object
-      required: [content, page]
+      required: [upcoming, inProgress, recentActivity]
+      description: |
+        Not paginated. `upcoming` (WAITING, earliest start first) and `inProgress` (IN_PROGRESS) are
+        full `ChargingSchedule` views; `recentActivity` is the last 5 finished charges as a slim view.
       properties:
-        content: { type: array, items: { $ref: '#/components/schemas/ChargingSchedule' } }
-        page: { $ref: '#/components/schemas/PageMetadata' }
+        upcoming: { type: array, items: { $ref: '#/components/schemas/ChargingSchedule' } }
+        inProgress: { type: array, items: { $ref: '#/components/schemas/ChargingSchedule' } }
+        recentActivity: { type: array, items: { $ref: '#/components/schemas/ChargingScheduleRecentActivity' } }
+
+    ChargingScheduleRecentActivity:
+      type: object
+      required: [scheduleId, evId, evName, status, scheduledStartAt, scheduledEndAt]
+      description: |
+        A slim record of a just-finished schedule for the Schedules overview. `status` is COMPLETED or
+        FAILED. The full result picture (costs, savings, per-hour breakdown) is in the charging-history
+        endpoints, not here.
+      properties:
+        scheduleId: { type: integer, format: int64, minimum: 1 }
+        sessionId: { type: integer, format: int64, minimum: 1, nullable: true }
+        evId: { type: integer, format: int64, minimum: 1 }
+        evName: { type: string }
+        status: { $ref: '#/components/schemas/ScheduleStatus' }
+        scheduledStartAt: { type: string, format: date-time }
+        scheduledEndAt: { type: string, format: date-time }
+        startedAt: { type: string, format: date-time, nullable: true }
+        completedAt: { type: string, format: date-time, nullable: true }
+        actualEnergyKwh: { type: number, format: double, nullable: true }
 
     FieldError:
       type: object

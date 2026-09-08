@@ -5,10 +5,10 @@
 | EV Registration | ✅ |  |  | Battery capacity, maximum AC charging power, default charger power | Manual input in V1 |
 | Electricity Price Lookup | ✅ |  |  | External API | Hva koster strømmen API |
 | Optimal Charging Time Calculation | ✅ |  |  | Core feature | Continuous charging window only; preview returns up to 3 candidates and persists nothing |
-| Charging Reservation | ✅ |  |  | Scheduler | The user confirms one previewed candidate; only that candidate is stored as plan + slots + schedule. A reservation can be cancelled only while still `WAITING`. |
+| Charging Reservation | ✅ |  |  | Scheduler | The user confirms one previewed candidate; only that candidate is stored as plan + slots + schedule. A reservation can be cancelled only while still `WAITING`. `GET /charging-schedules` is an overview (`upcoming` / `inProgress` / `recentActivity` — last 5 finished), not a long history. |
 | Actual EV Control | ❌ |  |  | Use Mock |  |
 | Mock Charging | ✅ |  |  | Used instead of actual devices | Triggered internally by a 1-minute execution scheduler, not by a user-facing API; always succeeds unless a failure is injected by config for a demo or test |
-| Charging History | ✅ |  |  |  |  |
+| Charging History | ✅ |  |  | `GET /charging-history`, `GET /charging-history/{sessionId}` | Read model over `charging_sessions`/`charging_schedules`/`charging_plans` (no new table). COMPLETED/FAILED only, newest first, with a realized-savings `summary` header. Detail is a "charging receipt": conditions + plan + per-hour breakdown + realized outcome. |
 | Savings Calculation | ✅ |  |  |  |  |
 | Tibber API |  | ✅ |  |  | Support personalization through Tibber API integration |
 | Vehicle Specification Master Data |  | ✅ |  | Build master data for vehicle specifications | Automatically display vehicle specifications when the user selects only the vehicle model |
@@ -23,6 +23,8 @@
 - **Preview vs. confirm:** `POST /charging-plans/preview` calculates up to three cheapest candidates and writes nothing to the database. `POST /charging-schedules` re-runs the calculation against the latest prices, keeps only the candidate the user selected, and stores it as one `charging_plans` row, its `charging_plan_slots`, and one `charging_schedules` row in a single transaction. Unselected candidates and infeasible previews are never persisted.
 - **Server is authoritative:** the confirm request sends only the original conditions and the selected start/end instants — never a cost, energy or slot list. Every stored figure is recomputed by the server.
 - **Charging plan vs. reservation:** A charging plan is the optimizer's recommendation for the confirmed candidate. A charging schedule (reservation) is its execution booking, created together with the plan.
+- **Schedules vs. History:** Schedules (`GET /charging-schedules`) is a current/near-future operations view — `upcoming`, `inProgress`, and only the last 5 finished charges. History (`GET /charging-history`) is the full record of past charges and savings performance. The 5-item cap on Schedules is what keeps the two from collapsing into the same feature.
+- **Planned vs. realized savings:** History reports `realizedSavingsNok` (`baselineCostNok - actualCostNok`) as the saving, and the summary sums realized savings over `COMPLETED` sessions only. The optimizer's `estimatedSavingsNok` (`baseline - optimized`) is shown for comparison but never summed. In V1 mock charging the two are equal; they stay separate concepts.
 - **Charging efficiency:** V1 uses a system-level default value of `0.9`; it is not stored per EV.
 - **Profile update:** `defaultPriceArea` is only a client-side default. Every price lookup and charging plan request takes an explicit price area, so a V1 user is not blocked by the value chosen at sign-up.
 - **Vehicle Specification Master Data:** Obtaining comprehensive metadata may be practically difficult.

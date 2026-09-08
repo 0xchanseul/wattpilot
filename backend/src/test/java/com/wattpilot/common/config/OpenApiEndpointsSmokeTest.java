@@ -7,6 +7,7 @@ import com.wattpilot.charging.repository.ChargingScheduleRepository;
 import com.wattpilot.charging.repository.ChargingSessionRepository;
 import com.wattpilot.electricity.repository.ElectricityPriceRepository;
 import com.wattpilot.ev.repository.EvRepository;
+import com.wattpilot.history.repository.ChargingHistoryRepository;
 import com.wattpilot.user.repository.UserRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -56,6 +57,9 @@ class OpenApiEndpointsSmokeTest {
 
     @MockitoBean
     ChargingSessionRepository chargingSessionRepository;
+
+    @MockitoBean
+    ChargingHistoryRepository chargingHistoryRepository;
 
     @Test
     void apiDocsExposesConfiguredInfo() throws Exception {

@@ -169,6 +169,8 @@ A **charging plan** is the recommendation for the one candidate the user confirm
 
 A **charging schedule** is the execution booking for a plan, created in the same transaction as the plan, directly in `WAITING`. The `charging_schedules` table has no `user_id` / `ev_id`; ownership and the overlap check reach the EV through `charging_plan_id → charging_plans`. Reservation/execution lifecycle (`WAITING`, `IN_PROGRESS`, `COMPLETED`, `CANCELLED`, `FAILED`) belongs to `charging_schedules` / `ScheduleStatus`. A confirm locks the EV row for the transaction so two concurrent confirms for the same EV cannot both pass the overlap check. `POST /charging-schedules/{scheduleId}/cancel` moves a `WAITING` schedule to `CANCELLED`; any other status is a 409 — V1 does not support cancelling a schedule once execution has started.
 
+`GET /charging-schedules` is the **Schedules overview** — deliberately not a paginated list. It returns three blocks: `upcoming` (`WAITING`, earliest start first) and `inProgress` (`IN_PROGRESS`) as full schedule views, and `recentActivity` — the last `ChargingScheduleService.RECENT_ACTIVITY_LIMIT` (5) `COMPLETED`/`FAILED` schedules as a slim view (schedule/session id, EV name, times, status, `actualEnergyKwh`), most recently finished first. The cap is a **role boundary**: Schedules stays a "current and near-future operations" screen, and the full record of past charges — with costs, savings and per-hour detail — is the charging-history endpoints. Letting completed rows accumulate here would make the two features indistinguishable. `getSchedulesOverview` runs one query for the active schedules and one `Limit`-bounded query for the recent tail, then batch-loads the plans/slots/sessions they need.
+
 # Charging Execution
 
 A 1-minute scheduler drives every confirmed reservation through Mock Charging, calling an internal service directly — never its own HTTP API — so the whole flow stays inside one process for V1.
@@ -207,7 +209,35 @@ On a successful completion, `actualEnergyKwh` / `actualCostNok` / `baselineCostN
 
 `MockChargingAdapter` always succeeds unless a schedule id is listed in `wattpilot.charging.execution.mock.failures` (empty in every committed profile). That map assigns a `ChargingFailureCode` to a schedule so demos and integration tests can drive a specific `FAILED` outcome or the retry path deterministically — `SYSTEM_ERROR` makes the adapter throw (exercising the bounded retry), the others return a business failure on their phase. See `docs/charging-execution-states.md` §7.
 
-`GET /charging-schedules/{scheduleId}` and the list endpoint embed the schedule's `ChargingSessionSummary` (null until the first execution attempt) — there is no separate user-facing Mock Charging API or history endpoint in V1.
+`GET /charging-schedules/{scheduleId}` and the list endpoint embed the schedule's `ChargingSessionSummary` (null until the first execution attempt) — there is no user-facing Mock Charging API in V1; execution is only ever driven by the scheduler.
+
+# Charging History
+
+`com.wattpilot.history` owns the record of past charges and their savings performance — a role distinct from Schedules (current/near-future operations). It is a **read model**, no new table: `ChargingHistoryRepository` runs projection queries that join `charging_sessions → charging_schedules → charging_plans` (the plan carries the owning user and the `ev_name` snapshot taken at confirmation), so results are user-scoped, have no N+1, and never read the mutable `evs` row. Both endpoints answer the same questions Schedules cannot: how much have I charged, how much have I saved, why did the optimizer pick that window.
+
+**`GET /charging-history`** — paginated list plus a `summary` header.
+
+- **Scope:** `charging_session_status` `COMPLETED` and `FAILED` only. A schedule still `WAITING`, one currently charging (session `STARTED`), and a reservation cancelled before it ran belong to the Schedules overview, not here. `CANCELLED` sessions are not written in V1.
+- **Order:** fixed `created_at DESC, id DESC` in the query; the endpoint ignores any client `sort`. `created_at` is the only timestamp present on every session (a `FAILED` session has no `completed_at`, a missed one has no `started_at`).
+- **Filters:** optional `evId` (narrows list **and** summary) and `status` (narrows the list only; a value outside the two history statuses matches nothing).
+- **Pagination:** `page` / `size` (capped at 100 by `spring.data.web.pageable.max-page-size`) with the standard `PageMetadata`; the response adds `summary` alongside `content`.
+
+**`GET /charging-history/{sessionId}`** — the "charging receipt". Loads the session + schedule + plan + `charging_plan_slots` (the same style `ChargingScheduleService.getSchedule` uses) into three deliberately separate groups: **conditions** (start/target SOC, price area, deadline, EV snapshot), **plan** (recommended window, `plannedEnergyKwh`, `optimizedCostNok`, `baselineCostNok`, `estimatedSavingsNok`, per-hour `plannedSlots`), and **actual** (`actualEnergyKwh`, `actualCostNok`, `realizedSavingsNok`). A `FAILED` entry keeps the full plan (the plan succeeded — only execution failed) but has no `actual` figures. `CHARGING_HISTORY_NOT_FOUND` (404) for an unknown id, another account's session, or a non-terminal one.
+
+**Planned vs. realized — never conflated.** From `ChargingResultCalculator`, a `COMPLETED` session stores both the plan's expected figures and the realized ones:
+
+| meaning | field | source |
+| --- | --- | --- |
+| optimizer's expected cost | `optimizedCostNok` | `charging_sessions.optimized_cost_nok` (= plan `estimated_cost_nok`) |
+| predicted saving | `estimatedSavingsNok` | `baselineCostNok - optimizedCostNok` |
+| realized cost / energy | `actualCostNok` / `actualEnergyKwh` | `charging_sessions.actual_*`, recorded on completion |
+| **delivered saving** | `realizedSavingsNok` | `baselineCostNok - actualCostNok` |
+
+History treats **`realizedSavingsNok` as the saving** — the per-item value and the summary's `totalSavingsNok` both use `baseline - actual`, never the estimate. In V1 mock charging finishes exactly as planned so the two are numerically equal, but the concepts stay separate (the DB column `estimated_savings_nok` is left as-is; the distinction lives in the DTOs). `plannedSlots` are the plan's per-hour rows from `charging_plan_slots` and are named to make clear they are planned, not a per-hour execution result — V1 stores no per-slot actual, and the deprecated `charging_schedule_slots` table is unused.
+
+**Summary aggregation** lives in `ChargingHistoryRepository` (one query: session counts over `COMPLETED`+`FAILED`, plus `SUM(actualEnergyKwh)` and `SUM(baselineCostNok - actualCostNok)` over the `COMPLETED` rows), so a later dashboard / savings-summary feature can reuse it. `successRate` = `COMPLETED` / total, one decimal.
+
+- **Indexes:** the join is covered by `idx_charging_plans_user_created`, `uq_charging_schedules_plan`, and `uq_charging_sessions_schedule`; no new index or migration is added for V1.
 
 # Deployment Architecture
 

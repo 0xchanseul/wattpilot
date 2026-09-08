@@ -14,7 +14,7 @@ import java.util.List;
  * and {@code charging_plan_slots} rows ({@link ChargingPlanSlot}). No calculation happens here — energy
  * and cost are copied verbatim so the persisted slot sums stay exactly equal to the plan aggregates.
  */
-final class ChargingSlotMapper {
+public final class ChargingSlotMapper {
 
     private ChargingSlotMapper() {
     }
@@ -37,7 +37,7 @@ final class ChargingSlotMapper {
         return entities;
     }
 
-    static List<com.wattpilot.charging.dto.ChargingPlanSlot> toDtos(List<ChargingPlanSlot> slots) {
+    public static List<com.wattpilot.charging.dto.ChargingPlanSlot> toDtos(List<ChargingPlanSlot> slots) {
         return slots.stream()
                 .map(slot -> new com.wattpilot.charging.dto.ChargingPlanSlot(
                         atDisplayZone(slot.getSlotStartAt()),

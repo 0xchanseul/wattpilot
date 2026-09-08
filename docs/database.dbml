@@ -250,6 +250,10 @@ Table charging_schedules {
   }
 }
 
+// Reserved but UNUSED in V1. The per-hour breakdown a schedule needs (confirmation screen,
+// charging-schedule detail, charging-history detail) is read from charging_plan_slots, which the
+// confirm flow populates. No entity, repository, or write path targets this table. Kept for a future
+// version that needs a schedule-scoped copy (e.g. once a schedule can diverge from its plan).
 Table charging_schedule_slots {
   id bigint [pk, increment]
   charging_schedule_id bigint [not null, ref: > charging_schedules.id]
@@ -280,7 +284,16 @@ Table charging_schedule_slots {
 //
 // baseline_cost_nok, optimized_cost_nok and estimated_savings_nok are populated only on COMPLETED:
 // they describe a realized outcome, so a failed or cancelled attempt leaves them null rather than
-// reporting savings that were never delivered.
+// reporting savings that were never delivered. In V1 mock charging finishes exactly as planned, so
+// actual_cost_nok == optimized_cost_nok and actual_energy_kwh == the plan's grid-side energy.
+//
+// estimated_savings_nok stores the plan's prediction (baseline - optimized). The charging-history
+// API does NOT surface this as "the" saving: it reports realizedSavingsNok = baseline_cost_nok -
+// actual_cost_nok (equal in V1, distinct in concept) and its savings totals sum only that. The
+// column name is kept; the planned/realized split lives in the response DTOs, not the schema.
+//
+// The charging-history endpoints are a read model over this table joined to charging_schedules and
+// charging_plans (no charging_history table). Only COMPLETED/FAILED sessions are history.
 Table charging_sessions {
   id bigint [pk, increment]
   charging_schedule_id bigint [not null, ref: > charging_schedules.id]
