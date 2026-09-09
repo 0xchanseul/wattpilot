@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils'
 const NAV_ITEMS = [
   { to: '/evs', label: 'My EVs', match: '/evs' },
   { to: '/charging/schedules', label: 'Charging', match: '/charging' },
+  { to: '/charging/history', label: 'History', match: '/charging/history' },
 ] as const
 
 export function AppLayout() {
@@ -38,7 +39,16 @@ export function AppLayout() {
           </Link>
           <nav className="flex items-center gap-1">
             {NAV_ITEMS.map((item) => {
-              const active = location.pathname.startsWith(item.match)
+              // Longest matching prefix wins, so "/charging/history" activates History, not Charging.
+              const activeMatch = NAV_ITEMS.reduce(
+                (best, candidate) =>
+                  location.pathname.startsWith(candidate.match) &&
+                  candidate.match.length > best.length
+                    ? candidate.match
+                    : best,
+                '',
+              )
+              const active = item.match === activeMatch
               return (
                 <NavLink
                   key={item.to}
