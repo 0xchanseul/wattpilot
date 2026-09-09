@@ -26,7 +26,7 @@ public interface ChargingHistoryRepository extends Repository<ChargingSession, L
 
     @Query(value = """
             select new com.wattpilot.history.repository.ChargingHistoryRow(
-                se.id, sc.id, p.evId, p.evName, se.status,
+                se.id, sc.id, p.evId, p.evName, se.status, se.createdAt,
                 se.startedAt, se.completedAt,
                 se.actualEnergyKwh, se.actualCostNok, se.baselineCostNok, se.optimizedCostNok,
                 se.failureCode, se.failureReason)
@@ -51,7 +51,7 @@ public interface ChargingHistoryRepository extends Repository<ChargingSession, L
 
     @Query(value = """
             select new com.wattpilot.history.repository.ChargingHistoryRow(
-                se.id, sc.id, p.evId, p.evName, se.status,
+                se.id, sc.id, p.evId, p.evName, se.status, se.createdAt,
                 se.startedAt, se.completedAt,
                 se.actualEnergyKwh, se.actualCostNok, se.baselineCostNok, se.optimizedCostNok,
                 se.failureCode, se.failureReason)

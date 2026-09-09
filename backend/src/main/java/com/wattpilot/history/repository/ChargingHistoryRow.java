@@ -22,6 +22,7 @@ public record ChargingHistoryRow(
         Long evId,
         String evName,
         ChargingSessionStatus status,
+        OffsetDateTime recordedAt,
         OffsetDateTime startedAt,
         OffsetDateTime completedAt,
         BigDecimal actualEnergyKwh,

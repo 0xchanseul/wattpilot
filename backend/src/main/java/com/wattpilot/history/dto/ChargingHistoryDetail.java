@@ -59,6 +59,8 @@ public record ChargingHistoryDetail(
         BigDecimal baselineCostNok,
         BigDecimal estimatedSavingsNok,
         ChargingSessionStatus status,
+        /** When the outcome was recorded; present even when the charge never started. */
+        OffsetDateTime recordedAt,
         OffsetDateTime startedAt,
         OffsetDateTime completedAt,
         BigDecimal actualEnergyKwh,
@@ -100,6 +102,7 @@ public record ChargingHistoryDetail(
                 plan.getBaselineCostNok(),
                 plan.getExpectedSavingsNok(),
                 session.getStatus(),
+                atDisplayZone(session.getCreatedAt()),
                 atDisplayZone(session.getStartedAt()),
                 atDisplayZone(session.getCompletedAt()),
                 session.getActualEnergyKwh(),

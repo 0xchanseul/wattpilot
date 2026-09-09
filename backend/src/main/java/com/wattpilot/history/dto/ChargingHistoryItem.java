@@ -35,6 +35,8 @@ public record ChargingHistoryItem(
         Long evId,
         String evName,
         ChargingSessionStatus status,
+        /** When the outcome was recorded (the list's sort key); present on every entry. */
+        OffsetDateTime recordedAt,
         OffsetDateTime startedAt,
         OffsetDateTime completedAt,
         BigDecimal baselineCostNok,
@@ -56,6 +58,7 @@ public record ChargingHistoryItem(
                 row.evId(),
                 row.evName(),
                 row.status(),
+                atDisplayZone(row.recordedAt()),
                 atDisplayZone(row.startedAt()),
                 atDisplayZone(row.completedAt()),
                 row.baselineCostNok(),

@@ -108,6 +108,9 @@ class ChargingHistoryApiIntegrationTest {
                 .andExpect(jsonPath("$.content[0].status").value("FAILED"))
                 .andExpect(jsonPath("$.content[0].evName").value("Failed car"))
                 .andExpect(jsonPath("$.content[0].failureCode").value("CHARGER_UNAVAILABLE"))
+                // A start failure has no startedAt, but recordedAt is always present.
+                .andExpect(jsonPath("$.content[0].recordedAt").exists())
+                .andExpect(jsonPath("$.content[1].recordedAt").exists())
                 .andExpect(jsonPath("$.content[0].baselineCostNok").value(nullValue()))
                 .andExpect(jsonPath("$.content[0].optimizedCostNok").value(nullValue()))
                 .andExpect(jsonPath("$.content[0].estimatedSavingsNok").value(nullValue()))
@@ -229,6 +232,7 @@ class ChargingHistoryApiIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.sessionId").value((int) sessionId))
                 .andExpect(jsonPath("$.scheduleId").value((int) scheduleId))
+                .andExpect(jsonPath("$.recordedAt").exists())
                 .andExpect(jsonPath("$.evSnapshot.model").value("i4"))
                 .andExpect(jsonPath("$.startBatteryPercent").value(20))
                 .andExpect(jsonPath("$.targetBatteryPercent").value(50))

@@ -1084,7 +1084,7 @@ components:
 
     ChargingHistoryItem:
       type: object
-      required: [sessionId, scheduleId, evId, evName, status]
+      required: [sessionId, scheduleId, evId, evName, status, recordedAt]
       description: |
         One executed charging session in the caller's history. Reached by joining the session to its
         schedule and plan; the plan carries `evName` as it was when the schedule was confirmed.
@@ -1105,6 +1105,7 @@ components:
         evId: { type: integer, format: int64, minimum: 1 }
         evName: { type: string }
         status: { $ref: '#/components/schemas/SessionStatus' }
+        recordedAt: { type: string, format: date-time, description: When the outcome was recorded; the list's sort key, present on every entry. }
         startedAt: { type: string, format: date-time, nullable: true }
         completedAt: { type: string, format: date-time, nullable: true }
         baselineCostNok: { type: number, format: double, nullable: true, description: Reference cost at the window-average electricity price. }
@@ -1118,7 +1119,7 @@ components:
 
     ChargingHistoryDetail:
       type: object
-      required: [sessionId, scheduleId, planId, evId, evSnapshot, startBatteryPercent, targetBatteryPercent, priceArea, status, plannedSlots]
+      required: [sessionId, scheduleId, planId, evId, evSnapshot, startBatteryPercent, targetBatteryPercent, priceArea, status, recordedAt, plannedSlots]
       description: |
         The "charging receipt" for one executed session. Three groups, deliberately separate:
           - Conditions — what the user asked for (`startBatteryPercent`, `targetBatteryPercent`,
@@ -1151,6 +1152,7 @@ components:
         baselineCostNok: { type: number, format: double }
         estimatedSavingsNok: { type: number, format: double, description: baselineCostNok - optimizedCostNok. }
         status: { $ref: '#/components/schemas/SessionStatus' }
+        recordedAt: { type: string, format: date-time, description: When the outcome was recorded; present even when the charge never started. }
         startedAt: { type: string, format: date-time, nullable: true }
         completedAt: { type: string, format: date-time, nullable: true }
         actualEnergyKwh: { type: number, format: double, nullable: true }

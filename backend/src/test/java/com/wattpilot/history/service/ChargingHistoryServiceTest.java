@@ -149,12 +149,12 @@ class ChargingHistoryServiceTest {
         OffsetDateTime startedUtc = OffsetDateTime.of(2026, 1, 15, 10, 0, 0, 0, ZoneOffset.UTC);
         ChargingHistoryRow completed = new ChargingHistoryRow(
                 10L, 100L, EV_ID, "Iris i4", ChargingSessionStatus.COMPLETED,
-                startedUtc, startedUtc.plusHours(3),
+                startedUtc, startedUtc, startedUtc.plusHours(3),
                 new BigDecimal("30.00"), new BigDecimal("8.0000"), new BigDecimal("12.5000"),
                 new BigDecimal("9.0000"), null, null);
         ChargingHistoryRow failed = new ChargingHistoryRow(
                 9L, 99L, EV_ID, "Iris i4", ChargingSessionStatus.FAILED,
-                null, null, null, null, null, null,
+                startedUtc.minusHours(2), null, null, null, null, null, null,
                 ChargingFailureCode.MISSED_EXECUTION_WINDOW, "The charging window closed before it could start.");
         when(historyRepository.findHistory(eq(USER_ID), any(), any()))
                 .thenReturn(new PageImpl<>(List.of(completed, failed)));
@@ -163,7 +163,9 @@ class ChargingHistoryServiceTest {
                 service().listHistory(USER_ID, null, null, PageRequest.of(0, 20)).content();
 
         ChargingHistoryItem first = items.get(0);
-        assertThat(first.startedAt().getOffset()).isEqualTo(ZoneOffset.ofHours(1)); // Europe/Oslo, 15 Jan
+        assertThat(first.recordedAt().toInstant()).isEqualTo(startedUtc.toInstant());
+        assertThat(first.recordedAt().getOffset()).isEqualTo(ZoneOffset.ofHours(1)); // Europe/Oslo, 15 Jan
+        assertThat(first.startedAt().getOffset()).isEqualTo(ZoneOffset.ofHours(1));
         assertThat(first.baselineCostNok()).isEqualByComparingTo("12.5000");
         assertThat(first.optimizedCostNok()).isEqualByComparingTo("9.0000");
         assertThat(first.estimatedSavingsNok()).isEqualByComparingTo("3.5000"); // baseline - optimized
@@ -172,6 +174,10 @@ class ChargingHistoryServiceTest {
 
         ChargingHistoryItem second = items.get(1);
         assertThat(second.status()).isEqualTo(ChargingSessionStatus.FAILED);
+        // A missed-window failure has no startedAt/completedAt, but recordedAt is always present.
+        assertThat(second.recordedAt()).isNotNull();
+        assertThat(second.startedAt()).isNull();
+        assertThat(second.completedAt()).isNull();
         assertThat(second.baselineCostNok()).isNull();
         assertThat(second.estimatedSavingsNok()).isNull();
         assertThat(second.realizedSavingsNok()).isNull();

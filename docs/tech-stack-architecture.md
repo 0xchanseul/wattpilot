@@ -218,7 +218,7 @@ On a successful completion, `actualEnergyKwh` / `actualCostNok` / `baselineCostN
 **`GET /charging-history`** — paginated list plus a `summary` header.
 
 - **Scope:** `charging_session_status` `COMPLETED` and `FAILED` only. A schedule still `WAITING`, one currently charging (session `STARTED`), and a reservation cancelled before it ran belong to the Schedules overview, not here. `CANCELLED` sessions are not written in V1.
-- **Order:** fixed `created_at DESC, id DESC` in the query; the endpoint ignores any client `sort`. `created_at` is the only timestamp present on every session (a `FAILED` session has no `completed_at`, a missed one has no `started_at`).
+- **Order:** fixed `created_at DESC, id DESC` in the query; the endpoint ignores any client `sort`. `created_at` is the only timestamp present on every session (a `FAILED` session has no `completed_at`, a missed one has no `started_at`), and is exposed on both responses as `recordedAt` so the list always has a timestamp to show.
 - **Filters:** optional `evId` (narrows list **and** summary) and `status` (narrows the list only; a value outside the two history statuses matches nothing).
 - **Pagination:** `page` / `size` (capped at 100 by `spring.data.web.pageable.max-page-size`) with the standard `PageMetadata`; the response adds `summary` alongside `content`.
 
