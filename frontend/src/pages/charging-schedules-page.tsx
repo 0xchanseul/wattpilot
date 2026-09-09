@@ -19,6 +19,9 @@ import {
   formatNok,
   formatScheduleWindow,
 } from '@/lib/format'
+import { listOrigin } from '@/lib/navigation'
+
+const SCHEDULES_ORIGIN = listOrigin('/charging/schedules', 'Charging schedules')
 
 const EV_PAGE_SIZE = 100
 
@@ -153,7 +156,11 @@ function ScheduleCard({ schedule, evName }: { schedule: ChargingSchedule; evName
     60_000
 
   return (
-    <Link to={`/charging/schedules/${schedule.id}`} className="block h-full">
+    <Link
+      to={`/charging/schedules/${schedule.id}`}
+      state={SCHEDULES_ORIGIN}
+      className="block h-full"
+    >
       <Card className="hover:border-ring h-full gap-3 transition-colors">
         <CardHeader>
           <div className="flex items-start justify-between gap-2">
@@ -195,15 +202,12 @@ function RecentActivityCard({ activity }: { activity: ChargingScheduleRecentActi
     activity.scheduledStartAt,
     activity.scheduledEndAt,
   )
-  // A finished charge is best viewed as its history "receipt"; fall back to the schedule only if the
-  // session id is somehow missing.
-  const to =
-    activity.sessionId != null
-      ? `/charging/history/${activity.sessionId}`
-      : `/charging/schedules/${activity.scheduleId}`
-
   return (
-    <Link to={to} className="block h-full">
+    <Link
+      to={`/charging/schedules/${activity.scheduleId}`}
+      state={SCHEDULES_ORIGIN}
+      className="block h-full"
+    >
       <Card className="hover:border-ring h-full gap-3 transition-colors">
         <CardHeader>
           <div className="flex items-start justify-between gap-2">

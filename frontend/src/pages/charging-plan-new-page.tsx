@@ -20,6 +20,7 @@ import {
   useCreateChargingScheduleMutation,
 } from '@/features/charging/queries'
 import { chargingErrorCopy } from '@/features/charging/error-copy'
+import { listOrigin } from '@/lib/navigation'
 import {
   defaultDeadlineValue,
   toPreviewRequest,
@@ -130,7 +131,10 @@ export function ChargingPlanNewPage() {
     try {
       const schedule = await createMutation.mutateAsync(body)
       toast.success('Charging scheduled')
-      navigate(`/charging/schedules/${schedule.id}`, { replace: true })
+      navigate(`/charging/schedules/${schedule.id}`, {
+        replace: true,
+        state: listOrigin('/charging/schedules', 'Charging schedules'),
+      })
     } catch {
       // Surfaced via createMutation.error below.
     }

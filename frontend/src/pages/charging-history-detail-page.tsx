@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react'
 import { Link, useParams } from 'react-router'
 import { ChevronLeftIcon } from 'lucide-react'
 
@@ -7,24 +8,34 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { ChargingSummaryCard } from '@/features/charging/components/charging-summary-card'
 import { chargingFailureText } from '@/features/charging/failure-copy'
 import { HistoryStatusBadge } from '@/features/history/components/history-status-badge'
+import { useElectricityPricesQuery } from '@/features/electricity/queries'
 import { useChargingHistoryEntryQuery } from '@/features/history/queries'
 import type { ChargingHistoryDetail } from '@/features/history/types'
 import { cn } from '@/lib/utils'
+import { useBackTarget } from '@/lib/navigation'
 import { formatDateTime, formatKw, formatKwh, formatNok } from '@/lib/format'
 import { priceAreaLabel } from '@/lib/price-area'
+
+// Recharts is heavy; keep it out of the initial bundle since the chart only appears on this page.
+const ChargePriceChart = lazy(() =>
+  import('@/features/history/components/charge-price-chart').then((m) => ({
+    default: m.ChargePriceChart,
+  })),
+)
 
 export function ChargingHistoryDetailPage() {
   const { sessionId } = useParams()
   const id = Number(sessionId)
   const { data, isPending, isError, error } = useChargingHistoryEntryQuery(id)
+  const back = useBackTarget({ to: '/charging/history', label: 'Charging history' })
 
   return (
     <div className="space-y-6">
       <Link
-        to="/charging/history"
+        to={back.to}
         className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-sm"
       >
-        <ChevronLeftIcon className="size-4" /> Charging history
+        <ChevronLeftIcon className="size-4" /> {back.label}
       </Link>
 
       {isPending ? <Skeleton className="h-96 w-full" /> : null}
@@ -35,7 +46,36 @@ export function ChargingHistoryDetailPage() {
   )
 }
 
+function floorToHourIso(iso: string): string {
+  const d = new Date(iso)
+  d.setMinutes(0, 0, 0)
+  return d.toISOString()
+}
+
+function ceilToHourIso(iso: string): string {
+  const d = new Date(iso)
+  if (d.getMinutes() || d.getSeconds() || d.getMilliseconds()) {
+    d.setHours(d.getHours() + 1, 0, 0, 0)
+  }
+  return d.toISOString()
+}
+
 function Receipt({ detail }: { detail: ChargingHistoryDetail }) {
+  const spanStart =
+    detail.earliestStartAt < detail.recommendedStartAt
+      ? detail.earliestStartAt
+      : detail.recommendedStartAt
+  const spanEnd =
+    detail.requiredCompletionAt > detail.recommendedEndAt
+      ? detail.requiredCompletionAt
+      : detail.recommendedEndAt
+  const pricesQuery = useElectricityPricesQuery({
+    priceArea: detail.priceArea,
+    from: floorToHourIso(spanStart),
+    to: ceilToHourIso(spanEnd),
+  })
+  const prices = pricesQuery.data?.prices ?? []
+
   return (
     <>
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -79,6 +119,25 @@ function Receipt({ detail }: { detail: ChargingHistoryDetail }) {
           </dl>
         </CardContent>
       </Card>
+
+      {prices.length > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Price &amp; charging window</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Suspense fallback={<Skeleton className="h-[248px] w-full" />}>
+              <ChargePriceChart
+                prices={prices}
+                chargeStartAt={detail.recommendedStartAt}
+                chargeEndAt={detail.recommendedEndAt}
+                earliestStartAt={detail.earliestStartAt}
+                requiredCompletionAt={detail.requiredCompletionAt}
+              />
+            </Suspense>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <ChargingSummaryCard
         title="Optimized plan"

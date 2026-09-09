@@ -23,6 +23,7 @@ import type {
 } from '@/features/history/types'
 import { cn } from '@/lib/utils'
 import { formatDateTime, formatKwh, formatNok } from '@/lib/format'
+import { listOrigin, type ListOriginState } from '@/lib/navigation'
 
 const PAGE_SIZE = 20
 
@@ -67,6 +68,13 @@ export function ChargingHistoryPage() {
 
   const meta = data?.page
   const hasHistory = (data?.summary.totalSessions ?? 0) > 0
+
+  // Send the current filter/page back with each row so "back" returns to this exact list view.
+  const search = searchParams.toString()
+  const rowOrigin = listOrigin(
+    search ? `/charging/history?${search}` : '/charging/history',
+    'Charging history',
+  )
 
   return (
     <div className="space-y-6">
@@ -126,7 +134,7 @@ export function ChargingHistoryPage() {
             <ul className={cn('space-y-3', isFetching && 'opacity-60')}>
               {data.content.map((item) => (
                 <li key={item.sessionId}>
-                  <HistoryRow item={item} />
+                  <HistoryRow item={item} origin={rowOrigin} />
                 </li>
               ))}
             </ul>
@@ -194,11 +202,17 @@ function Stat({ label, value, icon }: { label: string; value: string; icon: Reac
   )
 }
 
-function HistoryRow({ item }: { item: ChargingHistoryItem }) {
+function HistoryRow({
+  item,
+  origin,
+}: {
+  item: ChargingHistoryItem
+  origin: ListOriginState
+}) {
   const when = formatDateTime(item.completedAt ?? item.recordedAt)
 
   return (
-    <Link to={`/charging/history/${item.sessionId}`} className="block">
+    <Link to={`/charging/history/${item.sessionId}`} state={origin} className="block">
       <Card className="hover:border-ring transition-colors">
         <CardContent className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
           <div className="space-y-1">
