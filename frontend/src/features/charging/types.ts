@@ -106,7 +106,7 @@ export interface CreateChargingScheduleRequest {
   selectedEndAt: string
 }
 
-/** Response of the `/charging-schedules` endpoints. */
+/** Response of `GET /charging-schedules/{scheduleId}` and the items in the overview's active blocks. */
 export interface ChargingSchedule {
   id: number
   planId: number
@@ -128,7 +128,31 @@ export interface ChargingSchedule {
   updatedAt: string
 }
 
-export interface ListChargingSchedulesParams {
-  page?: number
-  size?: number
+/**
+ * A slim record of a just-finished schedule in the Schedules overview. `status` is `COMPLETED` or
+ * `FAILED`. The full result picture (costs, savings, per-hour breakdown) is in the charging-history
+ * endpoints, not here.
+ */
+export interface ChargingScheduleRecentActivity {
+  scheduleId: number
+  sessionId: number | null
+  evId: number
+  evName: string
+  status: ScheduleStatus
+  scheduledStartAt: string
+  scheduledEndAt: string
+  startedAt: string | null
+  completedAt: string | null
+  actualEnergyKwh: number | null
+}
+
+/**
+ * Response of `GET /charging-schedules`. Not paginated: it is the "current and near-future" view,
+ * not a history. `upcoming` (WAITING, earliest start first) and `inProgress` (IN_PROGRESS) are full
+ * schedule views; `recentActivity` is the last 5 finished charges as a slim view.
+ */
+export interface ChargingSchedulesOverview {
+  upcoming: ChargingSchedule[]
+  inProgress: ChargingSchedule[]
+  recentActivity: ChargingScheduleRecentActivity[]
 }

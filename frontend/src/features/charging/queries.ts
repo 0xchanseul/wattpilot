@@ -3,20 +3,15 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   createChargingSchedule,
   getChargingSchedule,
-  listChargingSchedules,
+  getChargingSchedulesOverview,
   previewChargingPlan,
 } from './api'
-import type {
-  CreateChargingPlanPreviewRequest,
-  CreateChargingScheduleRequest,
-  ListChargingSchedulesParams,
-} from './types'
+import type { CreateChargingPlanPreviewRequest, CreateChargingScheduleRequest } from './types'
 
 export const chargingKeys = {
   all: ['charging'] as const,
   schedules: () => ['charging', 'schedules'] as const,
-  scheduleList: (params: ListChargingSchedulesParams) =>
-    ['charging', 'schedules', 'list', params] as const,
+  scheduleOverview: () => ['charging', 'schedules', 'overview'] as const,
   scheduleDetail: (scheduleId: number) =>
     ['charging', 'schedules', 'detail', scheduleId] as const,
 }
@@ -39,10 +34,10 @@ export function useCreateChargingScheduleMutation() {
   })
 }
 
-export function useChargingSchedulesQuery(params: ListChargingSchedulesParams = {}) {
+export function useChargingSchedulesQuery() {
   return useQuery({
-    queryKey: chargingKeys.scheduleList(params),
-    queryFn: () => listChargingSchedules(params),
+    queryKey: chargingKeys.scheduleOverview(),
+    queryFn: getChargingSchedulesOverview,
   })
 }
 

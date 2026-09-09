@@ -1,11 +1,10 @@
 import { apiRequest } from '@/lib/api-client'
-import type { PageResponse } from '@/types/api'
 import type {
   ChargingPlanPreviewResponse,
   ChargingSchedule,
+  ChargingSchedulesOverview,
   CreateChargingPlanPreviewRequest,
   CreateChargingScheduleRequest,
-  ListChargingSchedulesParams,
 } from './types'
 
 /** POST /charging-plans/preview — ranked candidates, nothing persisted. */
@@ -29,10 +28,7 @@ export function getChargingSchedule(scheduleId: number): Promise<ChargingSchedul
   return apiRequest<ChargingSchedule>(`/charging-schedules/${scheduleId}`)
 }
 
-export function listChargingSchedules(
-  params: ListChargingSchedulesParams = {},
-): Promise<PageResponse<ChargingSchedule>> {
-  return apiRequest<PageResponse<ChargingSchedule>>('/charging-schedules', {
-    query: { page: params.page, size: params.size },
-  })
+/** GET /charging-schedules — the overview (upcoming / inProgress / recentActivity), not paginated. */
+export function getChargingSchedulesOverview(): Promise<ChargingSchedulesOverview> {
+  return apiRequest<ChargingSchedulesOverview>('/charging-schedules')
 }
