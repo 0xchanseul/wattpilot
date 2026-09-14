@@ -41,7 +41,7 @@ export function SignUpPage() {
   const onSubmit = form.handleSubmit(async (values) => {
     try {
       await signUp(values)
-      navigate('/evs', { replace: true })
+      navigate('/dashboard', { replace: true })
     } catch (error) {
       const handled = applyFieldErrors(
         error,

@@ -23,6 +23,17 @@ export function formatDate(iso: string): string {
   return dateFormatter.format(new Date(iso))
 }
 
+const shortDateFormatter = new Intl.DateTimeFormat('en-GB', {
+  timeZone: OSLO_TIME_ZONE,
+  day: 'numeric',
+  month: 'short',
+})
+
+/** Compact axis-label form, e.g. "1 Sep" — for a plain `YYYY-MM-DD` date (no time component). */
+export function formatShortDate(date: string): string {
+  return shortDateFormatter.format(new Date(`${date}T00:00:00`))
+}
+
 const numberFormatter = new Intl.NumberFormat('en-GB', { maximumFractionDigits: 2 })
 
 /** e.g. formatKw(7.4) -> "7.4 kW" */
@@ -48,6 +59,24 @@ export function formatNok(value: number): string {
 /** e.g. formatOrePerKwh(0.71) -> "71.0 øre/kWh" — prices per kWh are small NOK fractions. */
 export function formatOrePerKwh(nokPerKwh: number): string {
   return `${new Intl.NumberFormat('en-GB', { maximumFractionDigits: 1 }).format(nokPerKwh * 100)} øre/kWh`
+}
+
+/**
+ * e.g. formatNokPerKwh(1.42342) -> "1.42 NOK/kWh" — a blended cost-per-kWh figure (what charging
+ * actually cost), as distinct from a raw spot price, which is shown in øre via {@link formatOrePerKwh}.
+ */
+export function formatNokPerKwh(value: number): string {
+  return `${new Intl.NumberFormat('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)} NOK/kWh`
+}
+
+const percentFormatter = new Intl.NumberFormat('en-GB', {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+})
+
+/** e.g. formatPercent(26.956) -> "26.96%", formatPercent(-33.69) -> "-33.69%" */
+export function formatPercent(value: number): string {
+  return `${percentFormatter.format(value)}%`
 }
 
 /** e.g. formatDurationMinutes(273) -> "4h 33m", formatDurationMinutes(45) -> "45m" */

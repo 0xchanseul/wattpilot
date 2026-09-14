@@ -25,7 +25,7 @@ export function PublicOnlyRoute() {
     return <FullPageSpinner />
   }
   if (status === 'authenticated') {
-    return <Navigate to="/evs" replace />
+    return <Navigate to="/dashboard" replace />
   }
   return <Outlet />
 }
@@ -36,5 +36,5 @@ export function RootRedirect() {
   if (status === 'loading') {
     return <FullPageSpinner />
   }
-  return <Navigate to={status === 'authenticated' ? '/evs' : '/login'} replace />
+  return <Navigate to={status === 'authenticated' ? '/dashboard' : '/login'} replace />
 }

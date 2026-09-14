@@ -2,6 +2,7 @@ import { createBrowserRouter } from 'react-router'
 
 import { AppLayout } from '@/components/layout/app-layout'
 import { ProtectedRoute, PublicOnlyRoute, RootRedirect } from '@/components/route-guards'
+import { DashboardPage } from '@/pages/dashboard-page'
 import { LoginPage } from '@/pages/login-page'
 import { SignUpPage } from '@/pages/sign-up-page'
 import { EvListPage } from '@/pages/ev-list-page'
@@ -30,6 +31,7 @@ export const router = createBrowserRouter([
       {
         element: <AppLayout />,
         children: [
+          { path: 'dashboard', element: <DashboardPage /> },
           { path: 'evs', element: <EvListPage /> },
           { path: 'evs/new', element: <EvCreatePage /> },
           { path: 'evs/:evId', element: <EvDetailPage /> },

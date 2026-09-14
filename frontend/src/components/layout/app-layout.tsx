@@ -7,6 +7,7 @@ import { useAuth } from '@/features/auth/use-auth'
 import { cn } from '@/lib/utils'
 
 const NAV_ITEMS = [
+  { to: '/dashboard', label: 'Dashboard', match: '/dashboard' },
   { to: '/evs', label: 'My EVs', match: '/evs' },
   { to: '/charging/schedules', label: 'Charging', match: '/charging' },
   { to: '/charging/history', label: 'History', match: '/charging/history' },
@@ -33,7 +34,7 @@ export function AppLayout() {
     <div className="min-h-svh">
       <header className="border-b">
         <div className="mx-auto flex h-14 max-w-4xl items-center justify-between px-4">
-          <Link to="/evs" className="flex items-center gap-2 font-semibold">
+          <Link to="/dashboard" className="flex items-center gap-2 font-semibold">
             <img src="/favicon.svg" alt="" className="size-6" />
             WattPilot
           </Link>
