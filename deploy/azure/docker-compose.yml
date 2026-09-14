@@ -1,0 +1,24 @@
+# Runs on the Azure test VM. The database is Azure Database for PostgreSQL Flexible Server,
+# not a container here. See docs/deployment.md, "Temporary Test Environment (Azure)".
+#
+#   docker compose pull && docker compose up -d
+#
+services:
+  backend:
+    image: ${BACKEND_IMAGE:?set BACKEND_IMAGE in deploy/azure/.env}
+    container_name: wattpilot-backend
+    env_file:
+      - .env
+    environment:
+      SPRING_PROFILES_ACTIVE: cloud
+      # B1s has 1 GiB RAM and this VM only runs the app; leave headroom for the OS.
+      JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=70.0
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+    mem_limit: 768m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

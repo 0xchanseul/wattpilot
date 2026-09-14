@@ -1,0 +1,19 @@
+spring:
+  jpa:
+    hibernate:
+      # Fail startup instead of silently drifting if the deployed schema doesn't match
+      # the entities. Mirrors application-local.yml.
+      ddl-auto: validate
+    open-in-view: false
+
+  flyway:
+    enabled: true
+
+wattpilot:
+  security:
+    cors:
+      # No YAML default (unlike the local profile's localhost fallback): an unset value
+      # binds to an empty string, which resolves to CorsProperties' own empty-list
+      # default, so a misconfigured deployment fails closed (blocks all browser origins)
+      # rather than accidentally allowing one that was only meant for local development.
+      allowed-origins: ${CORS_ALLOWED_ORIGINS:}

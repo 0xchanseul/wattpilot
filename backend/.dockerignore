@@ -1,0 +1,16 @@
+# Keep the build context small and free of local artifacts.
+build/
+.gradle/
+bin/
+out/
+
+# IDE and OS noise
+.idea/
+*.iml
+.vscode/
+.DS_Store
+
+# Never ship local secrets or notes
+*.env
+!*.env.example
+HELP.md

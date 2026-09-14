@@ -1,0 +1,43 @@
+# Temporary remote test environment (see docs/deployment.md, "Temporary Test Environment (Azure)").
+#
+# Purpose: run the V1 schedulers against real data around the clock before the AWS production
+# environment exists. This profile is NOT the production profile; `prod` remains reserved for the
+# AWS deployment described in docs/deployment.md.
+#
+# Every value comes from an environment variable injected on the host (deploy/azure/.env).
+
+server:
+  port: ${SERVER_PORT:8080}
+
+spring:
+  datasource:
+    # Azure Database for PostgreSQL Flexible Server enforces TLS.
+    url: jdbc:postgresql://${POSTGRES_HOST}:${POSTGRES_PORT:5432}/${POSTGRES_DB}?sslmode=require
+    username: ${POSTGRES_USER}
+    password: ${POSTGRES_PASSWORD}
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+
+  flyway:
+    enabled: true
+
+wattpilot:
+  charging:
+    execution:
+      # The reason this environment exists: drive confirmed reservations through Mock Charging
+      # on the real one-minute cadence.
+      enabled: ${CHARGING_EXECUTION_ENABLED:true}
+
+  electricity:
+    collection:
+      # The reason this environment exists: collect next-day prices from the real
+      # Hva koster strømmen API on the real Europe/Oslo schedule.
+      enabled: ${PRICE_COLLECTION_ENABLED:true}
+
+  security:
+    cors:
+      # The browser client runs from a local Vite dev server against this remote API.
+      allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}

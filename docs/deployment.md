@@ -15,10 +15,12 @@ React + Spring Boot + PostgreSQL
    Production Environment
 ```
 
-The initial project will use only two environments:
+The initial project will use only two long-lived environments:
 
 - **Local** — development and testing
 - **Production** — portfolio deployment and public access
+
+A short-lived **Azure test environment** is also used before Production exists, to run the V1 schedulers against real data around the clock. It is described in "Temporary Test Environment (Azure)" below and is torn down once Production is ready.
 
 A separate staging environment may be added later if needed.
 
@@ -43,6 +45,196 @@ Main components:
 - Flyway
 
 Database schema changes are managed through **Flyway migration scripts** rather than manual schema changes in tools such as DBeaver.
+
+# Temporary Test Environment (Azure)
+
+## Purpose and scope
+
+Before the AWS production environment exists, the V1 schedulers need to run continuously against real
+inputs to be validated:
+
+- **Price collection** — fetches Norwegian next-day prices from the public Hva koster strømmen API on
+  the real `Europe/Oslo` schedule (`0 15 13-22 * * *`).
+- **Mock Charging execution** — drives confirmed reservations through Mock Charging every minute.
+
+Running these on a developer laptop is not practical, and standing up the full AWS stack early is not
+cost-effective. A single small Azure VM plus a managed PostgreSQL server covers it while staying inside
+Azure's 12-month free grants.
+
+This environment is **temporary and non-authoritative**:
+
+- It is not the production target. The Production architecture (ECS Fargate + RDS) below is unchanged.
+- It uses the `cloud` Spring profile, not `prod`.
+- It has no domain, no HTTPS, no frontend hosting, and no CI. Those belong to Production.
+- It is deleted once Production is ready, or before the free grants expire — whichever comes first.
+
+## Architecture
+
+```
+Local machine                         Azure (resource group: wattpilot-test)
+─────────────                          ─────────────────────────────────────
+React (Vite dev server)  ──HTTP──▶     VM  (Standard_B1s, Ubuntu 24.04)
+                                         └─ Docker: wattpilot-backend  (profile: cloud)
+docker build + push                              │ JDBC + TLS
+        │                                        ▼
+        ▼                              PostgreSQL Flexible Server (Standard_B1ms, 32 GiB)
+GHCR (ghcr.io/<owner>/wattpilot-backend)
+```
+
+| Purpose | Choice |
+| --- | --- |
+| Backend host | Azure VM `Standard_B1s` (1 vCPU / 1 GiB), 12-month free |
+| Database | Azure Database for PostgreSQL Flexible Server `Standard_B1ms` + 32 GiB, 12-month free |
+| Image registry | GitHub Container Registry (GHCR), free |
+| DB network access | Public access, firewall restricted to the VM's public IP |
+| Frontend | Run locally with `npm run dev`, pointed at the VM |
+
+Confirm the currently free-eligible VM size and the PostgreSQL free offer at provisioning time; Azure
+adjusts both periodically.
+
+## Files
+
+| File | Role |
+| --- | --- |
+| `backend/Dockerfile` | Multi-stage build of the backend image (built locally, not on the VM) |
+| `backend/src/main/resources/application-cloud.yml` | `cloud` profile: managed DB with TLS, schedulers on, real price API |
+| `deploy/azure/docker-compose.yml` | What runs on the VM (backend container only) |
+| `deploy/azure/.env.example` | Template for `deploy/azure/.env`, created on the VM and never committed |
+
+## Procedure
+
+### 1. Build and push the image (local machine)
+
+```bash
+cd backend
+docker build -t ghcr.io/<owner>/wattpilot-backend:latest .
+
+# CR_PAT: a GitHub personal access token with write:packages (read:packages is enough on the VM)
+echo $CR_PAT | docker login ghcr.io -u <owner> --password-stdin
+docker push ghcr.io/<owner>/wattpilot-backend:latest
+```
+
+Tests are skipped inside the image build because they need a Docker daemon (Testcontainers); run
+`./gradlew test` locally before pushing.
+
+### 2. Provision the database
+
+```bash
+RG=wattpilot-test
+LOC=swedencentral
+
+az group create -n $RG -l $LOC
+
+az postgres flexible-server create \
+  -g $RG -n <pg-server-name> -l $LOC \
+  --tier Burstable --sku-name Standard_B1ms \
+  --storage-size 32 --version 16 \
+  --admin-user wattpilot --admin-password '<admin-password>' \
+  --database-name wattpilot \
+  --public-access None
+```
+
+### 3. Provision the VM
+
+```bash
+az vm create \
+  -g $RG -n wattpilot-vm -l $LOC \
+  --image Ubuntu2404 --size Standard_B1s \
+  --admin-username azureuser --generate-ssh-keys
+
+az vm open-port -g $RG -n wattpilot-vm --port 8080
+
+VM_IP=$(az vm show -d -g $RG -n wattpilot-vm --query publicIps -o tsv)
+
+# Restrict the database to the VM only
+az postgres flexible-server firewall-rule create \
+  -g $RG -n <pg-server-name> --rule-name allow-vm \
+  --start-ip-address $VM_IP --end-ip-address $VM_IP
+```
+
+### 4. Install Docker on the VM
+
+```bash
+ssh azureuser@$VM_IP
+curl -fsSL https://get.docker.com | sudo sh
+sudo usermod -aG docker $USER
+exit   # re-connect so the group membership applies
+```
+
+### 5. Configure and run
+
+```bash
+ssh azureuser@$VM_IP
+mkdir -p ~/wattpilot && cd ~/wattpilot
+
+# copy deploy/azure/docker-compose.yml here (scp or paste), then:
+cp .env.example .env   # or create it from deploy/azure/.env.example
+#   BACKEND_IMAGE=ghcr.io/<owner>/wattpilot-backend:latest
+#   POSTGRES_HOST=<pg-server-name>.postgres.database.azure.com
+#   POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB=wattpilot
+#   JWT_SECRET=$(openssl rand -base64 32)
+#   CORS_ALLOWED_ORIGINS=http://localhost:5173
+
+echo $CR_PAT | docker login ghcr.io -u <owner> --password-stdin
+docker compose pull
+docker compose up -d
+docker compose logs -f
+```
+
+### 6. Verify
+
+- Logs show Flyway applying the migrations, then `Started WattpilotBackendApplication`.
+- `curl http://$VM_IP:8080/v3/api-docs` returns the OpenAPI JSON.
+- After 13:15 Oslo, logs show a price-collection run; every minute, a Mock Charging execution tick.
+
+### 7. Interact with the API
+
+The backend runs over plain HTTP on the VM's IP. The `Authorization: Bearer` access token works
+directly, but the refresh-token cookie is `SameSite=Lax; Secure`, so a browser will neither store nor
+send it to a non-HTTPS, cross-site host. Consequences:
+
+- **Swagger UI / API clients:** tunnel to the VM so the origin is `localhost`, then the full auth
+  flow (including refresh) works:
+
+  ```bash
+  ssh -L 8080:localhost:8080 azureuser@$VM_IP
+  # open http://localhost:8080/swagger-ui.html
+  ```
+
+- **Local React frontend:** set `frontend/.env` to `VITE_API_BASE_URL=http://<VM_IP>:8080/api/v1` and
+  run `npm run dev`. Login and Bearer-authenticated calls work; silent refresh does not, so the
+  session ends when the 30-minute access token expires and you log in again. Full HTTPS + domain is
+  production scope.
+
+To exercise the Mock Charging execution scheduler, create a confirmed charging schedule
+(`POST /charging-schedules`) through the tunnelled Swagger UI. Price collection needs no interaction.
+`backend/scripts/seed_electricity_prices.py` can seed prices directly against the managed database if a
+run has not happened yet.
+
+## Redeploying
+
+```bash
+# local
+docker build -t ghcr.io/<owner>/wattpilot-backend:latest ./backend
+docker push ghcr.io/<owner>/wattpilot-backend:latest
+
+# VM
+cd ~/wattpilot && docker compose pull && docker compose up -d
+```
+
+## Cost guardrails and teardown
+
+- The VM and the Flexible Server are covered by **12-month** free grants tied to the account creation
+  date. After that they bill at pay-as-you-go (roughly USD 25–30 / month combined).
+- Standard public IP, egress above the free allowance, and extra disk are **not** covered by the
+  compute free grant and can produce small charges even in year one.
+- Set a Cost Management **budget alert** at a low threshold (e.g. USD 5) right after provisioning.
+- Add a calendar reminder to migrate or delete before the 12-month mark.
+- Full teardown removes every resource:
+
+  ```bash
+  az group delete -n wattpilot-test --yes --no-wait
+  ```
 
 # Production Architecture
 
@@ -197,6 +389,7 @@ Environment-specific configuration will use Spring Profiles.
 
 ```
 local
+cloud   (temporary Azure test environment; see below)
 prod
 ```
 
