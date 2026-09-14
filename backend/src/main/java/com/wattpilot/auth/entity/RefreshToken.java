@@ -22,6 +22,10 @@ import java.time.OffsetDateTime;
  * <p>Rotation and logout revoke rather than delete: a row that disappeared would be
  * indistinguishable from one that was never issued, whereas {@code revokedAt} keeps the replay of
  * a superseded token visible in the logs.
+ *
+ * <p>{@code absoluteExpiresAt} is the end of the whole login session, fixed at the initial login.
+ * Rotation copies it onto the successor row unchanged, so a session cannot be kept alive
+ * indefinitely by refreshing. It is stored in the {@code expires_at} column.
  */
 @Entity
 @Table(name = "refresh_tokens")
@@ -40,7 +44,7 @@ public class RefreshToken {
     private String tokenHash;
 
     @Column(name = "expires_at", nullable = false)
-    private OffsetDateTime expiresAt;
+    private OffsetDateTime absoluteExpiresAt;
 
     @Column(name = "revoked_at")
     private OffsetDateTime revokedAt;
@@ -49,14 +53,14 @@ public class RefreshToken {
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
 
-    private RefreshToken(Long userId, String tokenHash, OffsetDateTime expiresAt) {
+    private RefreshToken(Long userId, String tokenHash, OffsetDateTime absoluteExpiresAt) {
         this.userId = userId;
         this.tokenHash = tokenHash;
-        this.expiresAt = expiresAt;
+        this.absoluteExpiresAt = absoluteExpiresAt;
     }
 
-    public static RefreshToken issue(Long userId, String tokenHash, OffsetDateTime expiresAt) {
-        return new RefreshToken(userId, tokenHash, expiresAt);
+    public static RefreshToken issue(Long userId, String tokenHash, OffsetDateTime absoluteExpiresAt) {
+        return new RefreshToken(userId, tokenHash, absoluteExpiresAt);
     }
 
     public void revoke(OffsetDateTime revokedAt) {
@@ -68,6 +72,6 @@ public class RefreshToken {
     }
 
     public boolean isExpired(OffsetDateTime at) {
-        return !expiresAt.isAfter(at);
+        return !absoluteExpiresAt.isAfter(at);
     }
 }

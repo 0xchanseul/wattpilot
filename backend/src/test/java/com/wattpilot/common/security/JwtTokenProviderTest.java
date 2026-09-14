@@ -75,7 +75,8 @@ class JwtTokenProviderTest {
     }
 
     private static JwtTokenProvider providerWith(String secret, String issuer, Duration accessTokenTtl) {
-        return new JwtTokenProvider(new JwtProperties(secret, issuer, accessTokenTtl, Duration.ofDays(14)));
+        return new JwtTokenProvider(
+                new JwtProperties(secret, issuer, accessTokenTtl, Duration.ofDays(7), Duration.ofDays(30)));
     }
 
     private static String base64Key(byte filler) {

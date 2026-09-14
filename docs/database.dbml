@@ -65,7 +65,7 @@ Table refresh_tokens {
   id bigint [pk, increment]
   user_id bigint [not null, ref: > users.id]
   token_hash varchar(255) [not null, unique, note: 'Store only a one-way hash of the refresh token']
-  expires_at timestamptz [not null]
+  expires_at timestamptz [not null, note: 'Absolute end of the login session, fixed at the initial login (7d, or 30d with remember-me); a rotation copies this value onto the successor row unchanged']
   revoked_at timestamptz
   created_at timestamptz [not null]
 

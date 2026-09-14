@@ -72,12 +72,17 @@ wattpilot:
       # there is deliberately no default so a misconfigured deployment fails fast.
       secret: ${JWT_SECRET}
       issuer: wattpilot
-      access-token-ttl: 1h
-      refresh-token-ttl: 14d
+      access-token-ttl: 30m
+      # Absolute lifetime of a login session, measured from the initial login and never
+      # extended by a refresh-token rotation. The remember-me value applies when the user
+      # ticked "keep me signed in" at login; the default applies otherwise and to sign-up.
+      session-ttl: 7d
+      remember-me-session-ttl: 30d
 
     refresh-cookie:
-      # The refresh token is delivered as an HttpOnly cookie whose lifetime tracks
-      # jwt.refresh-token-ttl. Secure stays on by default (browsers accept it over
+      # The refresh token is delivered as an HttpOnly cookie whose lifetime tracks the
+      # remaining session lifetime (jwt.session-ttl or jwt.remember-me-session-ttl, minus
+      # the time already elapsed). Secure stays on by default (browsers accept it over
       # http://localhost); set it to false only when the API is served over plain HTTP on a
       # non-localhost host. Use same-site=None (with a real HTTPS origin) only when the frontend
       # and API are on unrelated sites.

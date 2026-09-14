@@ -27,7 +27,7 @@ export function LoginPage() {
 
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
-    defaultValues: { email: '', password: '' },
+    defaultValues: { email: '', password: '', rememberMe: false },
   })
 
   const onSubmit = form.handleSubmit(async (values) => {
@@ -84,6 +84,27 @@ export function LoginPage() {
                       <Input type="password" autoComplete="current-password" {...field} />
                     </FormControl>
                     <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="rememberMe"
+                render={({ field }) => (
+                  <FormItem className="flex flex-row items-center gap-2 space-y-0">
+                    <FormControl>
+                      <input
+                        type="checkbox"
+                        className="border-input text-primary focus-visible:ring-ring size-4 rounded border focus-visible:ring-2 focus-visible:outline-none"
+                        name={field.name}
+                        ref={field.ref}
+                        checked={field.value}
+                        onBlur={field.onBlur}
+                        onChange={(event) => field.onChange(event.target.checked)}
+                      />
+                    </FormControl>
+                    <FormLabel className="font-normal">Keep me signed in on this device</FormLabel>
                   </FormItem>
                 )}
               />

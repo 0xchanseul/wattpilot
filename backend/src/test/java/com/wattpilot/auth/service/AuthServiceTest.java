@@ -14,6 +14,7 @@ import com.wattpilot.user.service.UserService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
@@ -25,11 +26,13 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.Base64;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.within;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
@@ -62,20 +65,21 @@ class AuthServiceTest {
         JwtProperties jwtProperties = new JwtProperties(
                 Base64.getEncoder().encodeToString(new byte[32]),
                 "wattpilot",
-                Duration.ofHours(1),
-                Duration.ofDays(14));
+                Duration.ofMinutes(30),
+                Duration.ofDays(7),
+                Duration.ofDays(30));
         authService = new AuthService(
                 userService, refreshTokenRepository, jwtTokenProvider, passwordEncoder, jwtProperties);
 
         when(jwtTokenProvider.createAccessToken(any())).thenReturn("access-token");
-        when(jwtTokenProvider.accessTokenTtlSeconds()).thenReturn(3600L);
+        when(jwtTokenProvider.accessTokenTtlSeconds()).thenReturn(1800L);
     }
 
     @Test
     void loginWithUnknownEmailIsRejectedAsInvalidCredentials() {
         when(userService.findByEmail(anyString())).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> authService.login(new LoginRequest("nobody@example.com", RAW_PASSWORD)))
+        assertThatThrownBy(() -> authService.login(new LoginRequest("nobody@example.com", RAW_PASSWORD, false)))
                 .isInstanceOf(BusinessException.class)
                 .extracting(ex -> ((BusinessException) ex).errorCode())
                 .isEqualTo(ErrorCode.INVALID_CREDENTIALS);
@@ -85,7 +89,7 @@ class AuthServiceTest {
     void loginWithWrongPasswordReportsTheSameErrorAsAnUnknownEmail() {
         when(userService.findByEmail(anyString())).thenReturn(Optional.of(activeUser()));
 
-        assertThatThrownBy(() -> authService.login(new LoginRequest("iris@example.com", "wrong-password")))
+        assertThatThrownBy(() -> authService.login(new LoginRequest("iris@example.com", "wrong-password", false)))
                 .isInstanceOf(BusinessException.class)
                 .extracting(ex -> ((BusinessException) ex).errorCode())
                 .isEqualTo(ErrorCode.INVALID_CREDENTIALS);
@@ -97,7 +101,7 @@ class AuthServiceTest {
         ReflectionTestUtils.setField(user, "status", UserStatus.INACTIVE);
         when(userService.findByEmail(anyString())).thenReturn(Optional.of(user));
 
-        assertThatThrownBy(() -> authService.login(new LoginRequest("iris@example.com", RAW_PASSWORD)))
+        assertThatThrownBy(() -> authService.login(new LoginRequest("iris@example.com", RAW_PASSWORD, false)))
                 .isInstanceOf(BusinessException.class)
                 .extracting(ex -> ((BusinessException) ex).errorCode())
                 .isEqualTo(ErrorCode.INVALID_CREDENTIALS);
@@ -107,20 +111,33 @@ class AuthServiceTest {
     void loginWithValidCredentialsReturnsATokenPairAndTheUser() {
         when(userService.findByEmail(anyString())).thenReturn(Optional.of(activeUser()));
 
-        var result = authService.login(new LoginRequest("iris@example.com", RAW_PASSWORD));
+        var result = authService.login(new LoginRequest("iris@example.com", RAW_PASSWORD, false));
 
         assertThat(result.body().accessToken()).isEqualTo("access-token");
         assertThat(result.body().tokenType()).isEqualTo("Bearer");
-        assertThat(result.body().expiresIn()).isEqualTo(3600L);
+        assertThat(result.body().expiresIn()).isEqualTo(1800L);
         assertThat(result.body().user().email()).isEqualTo("iris@example.com");
         assertThat(result.refreshToken()).isNotBlank();
-        assertThat(result.refreshTokenValidity()).isEqualTo(Duration.ofDays(14));
+        assertThat(result.refreshTokenValidity()).isEqualTo(Duration.ofDays(7));
         verify(refreshTokenRepository).save(any(RefreshToken.class));
     }
 
     @Test
+    void loginWithRememberMeGrantsTheLongerSessionLifetime() {
+        when(userService.findByEmail(anyString())).thenReturn(Optional.of(activeUser()));
+        OffsetDateTime before = OffsetDateTime.now(ZoneOffset.UTC);
+
+        var result = authService.login(new LoginRequest("iris@example.com", RAW_PASSWORD, true));
+
+        assertThat(result.refreshTokenValidity()).isEqualTo(Duration.ofDays(30));
+        RefreshToken saved = savedToken();
+        assertThat(saved.getAbsoluteExpiresAt()).isCloseTo(
+                before.plusDays(30), within(1, ChronoUnit.MINUTES));
+    }
+
+    @Test
     void refreshRevokesThePresentedTokenAndStoresANewOne() {
-        RefreshToken stored = storedToken(1L, OffsetDateTime.now(ZoneOffset.UTC).plusDays(14));
+        RefreshToken stored = storedToken(1L, OffsetDateTime.now(ZoneOffset.UTC).plusDays(7));
         when(refreshTokenRepository.findByTokenHash(anyString())).thenReturn(Optional.of(stored));
         when(userService.getById(1L)).thenReturn(activeUser());
 
@@ -131,6 +148,22 @@ class AuthServiceTest {
         assertThat(result.refreshToken()).isNotBlank();
         assertThat(result.refreshToken()).isNotEqualTo(PRESENTED_TOKEN);
         verify(refreshTokenRepository).save(any(RefreshToken.class));
+    }
+
+    @Test
+    void refreshKeepsTheOriginalAbsoluteExpirationInsteadOfExtendingIt() {
+        OffsetDateTime originalExpiry = OffsetDateTime.now(ZoneOffset.UTC).plusDays(3);
+        RefreshToken stored = storedToken(1L, originalExpiry);
+        when(refreshTokenRepository.findByTokenHash(anyString())).thenReturn(Optional.of(stored));
+        when(userService.getById(1L)).thenReturn(activeUser());
+
+        var result = authService.refresh(PRESENTED_TOKEN);
+
+        assertThat(savedToken().getAbsoluteExpiresAt()).isEqualTo(originalExpiry);
+        // The cookie now lives only for the time still left, not a fresh full lifetime.
+        assertThat(result.refreshTokenValidity())
+                .isLessThanOrEqualTo(Duration.ofDays(3))
+                .isGreaterThan(Duration.ofDays(3).minusMinutes(1));
     }
 
     @Test
@@ -182,6 +215,12 @@ class AuthServiceTest {
         when(refreshTokenRepository.findByTokenHash(anyString())).thenReturn(Optional.empty());
 
         authService.logout(1L, PRESENTED_TOKEN);
+    }
+
+    private RefreshToken savedToken() {
+        ArgumentCaptor<RefreshToken> captor = ArgumentCaptor.forClass(RefreshToken.class);
+        verify(refreshTokenRepository).save(captor.capture());
+        return captor.getValue();
     }
 
     private User activeUser() {

@@ -37,6 +37,11 @@ import java.util.UUID;
  * expire. Refresh tokens are the opposite: opaque, stored as a hash, and rotated on every use, so
  * a leaked refresh token is only usable until its owner next refreshes.
  *
+ * <p>Every session carries an absolute expiration fixed at the initial login (see
+ * {@link JwtProperties#sessionTtlFor(boolean)}). Rotation carries that instant onto the successor
+ * token unchanged, so a session always ends at its original deadline no matter how often it is
+ * refreshed, and the user must log in again afterwards.
+ *
  * <p>This service produces the raw refresh token but does not decide how it reaches the client:
  * {@link com.wattpilot.auth.controller.AuthController} places it in an {@code HttpOnly} cookie.
  */
@@ -53,7 +58,8 @@ public class AuthService {
     private final RefreshTokenRepository refreshTokenRepository;
     private final JwtTokenProvider jwtTokenProvider;
     private final PasswordEncoder passwordEncoder;
-    private final Duration refreshTokenTtl;
+    private final Duration sessionTtl;
+    private final Duration rememberMeSessionTtl;
     private final String unusablePasswordHash;
     private final SecureRandom secureRandom = new SecureRandom();
 
@@ -66,7 +72,8 @@ public class AuthService {
         this.refreshTokenRepository = refreshTokenRepository;
         this.jwtTokenProvider = jwtTokenProvider;
         this.passwordEncoder = passwordEncoder;
-        this.refreshTokenTtl = jwtProperties.refreshTokenTtl();
+        this.sessionTtl = jwtProperties.sessionTtl();
+        this.rememberMeSessionTtl = jwtProperties.rememberMeSessionTtl();
         // Verified against when the email is unknown, so an unregistered address costs the same
         // hashing work as a wrong password and cannot be identified by response time.
         this.unusablePasswordHash = passwordEncoder.encode(UUID.randomUUID().toString());
@@ -74,14 +81,14 @@ public class AuthService {
 
     /**
      * A successful sign-up or login: the response body plus the raw refresh token and how long its
-     * cookie should live.
+     * cookie should live, which for a fresh session is the whole absolute session lifetime.
      */
     public record AuthResult(AuthResponse body, String refreshToken, Duration refreshTokenValidity) {
     }
 
     /**
      * A successful token refresh: a new access token for the body plus the rotated refresh token
-     * and its cookie lifetime.
+     * and its cookie lifetime, which is the time still left before the session's absolute expiry.
      */
     public record RefreshResult(AccessTokenResponse body, String refreshToken, Duration refreshTokenValidity) {
     }
@@ -90,11 +97,8 @@ public class AuthService {
     public AuthResult signUp(SignUpRequest request) {
         User user = userService.register(
                 request.email(), request.password(), request.name(), request.defaultPriceArea());
-        IssuedTokens tokens = issueTokens(user);
-        return new AuthResult(
-                AuthResponse.of(tokens.accessTokenResponse(), UserResponse.from(user)),
-                tokens.refreshToken(),
-                refreshTokenTtl);
+        // Sign-up has no "keep me signed in" choice, so it gets the default session lifetime.
+        return startSession(user, sessionTtl);
     }
 
     @Transactional
@@ -109,11 +113,16 @@ public class AuthService {
             throw new BusinessException(ErrorCode.INVALID_CREDENTIALS);
         }
 
-        IssuedTokens tokens = issueTokens(user);
+        return startSession(user, request.rememberMe() ? rememberMeSessionTtl : sessionTtl);
+    }
+
+    private AuthResult startSession(User user, Duration sessionDuration) {
+        OffsetDateTime absoluteExpiresAt = OffsetDateTime.now(ZoneOffset.UTC).plus(sessionDuration);
+        IssuedTokens tokens = issueTokens(user, absoluteExpiresAt);
         return new AuthResult(
                 AuthResponse.of(tokens.accessTokenResponse(), UserResponse.from(user)),
                 tokens.refreshToken(),
-                refreshTokenTtl);
+                sessionDuration);
     }
 
     @Transactional
@@ -138,9 +147,15 @@ public class AuthService {
             throw new BusinessException(ErrorCode.INVALID_TOKEN);
         }
 
+        // Carry the session's absolute expiry onto the successor token unchanged: a rotation must
+        // never push the deadline out, otherwise an active session would never end.
+        OffsetDateTime absoluteExpiresAt = storedToken.getAbsoluteExpiresAt();
         storedToken.revoke(now);
-        IssuedTokens tokens = issueTokens(user);
-        return new RefreshResult(tokens.accessTokenResponse(), tokens.refreshToken(), refreshTokenTtl);
+        IssuedTokens tokens = issueTokens(user, absoluteExpiresAt);
+        return new RefreshResult(
+                tokens.accessTokenResponse(),
+                tokens.refreshToken(),
+                Duration.between(now, absoluteExpiresAt));
     }
 
     /**
@@ -157,10 +172,9 @@ public class AuthService {
                 .ifPresent(token -> token.revoke(OffsetDateTime.now(ZoneOffset.UTC)));
     }
 
-    private IssuedTokens issueTokens(User user) {
+    private IssuedTokens issueTokens(User user, OffsetDateTime absoluteExpiresAt) {
         String rawRefreshToken = generateRefreshToken();
-        OffsetDateTime expiresAt = OffsetDateTime.now(ZoneOffset.UTC).plus(refreshTokenTtl);
-        refreshTokenRepository.save(RefreshToken.issue(user.getId(), hash(rawRefreshToken), expiresAt));
+        refreshTokenRepository.save(RefreshToken.issue(user.getId(), hash(rawRefreshToken), absoluteExpiresAt));
 
         AccessTokenResponse accessTokenResponse = new AccessTokenResponse(
                 jwtTokenProvider.createAccessToken(user.getId()),

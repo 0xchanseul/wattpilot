@@ -18,6 +18,7 @@
 | Dishwasher |  |  | ✅ |  |  |
 | Smart Home Integration |  |  | ✅ |  |  |
 
+- **Login session lifetime:** Access tokens live 30 minutes and are never kept in browser persistent storage. A session has an absolute expiration fixed at login — 7 days by default, or 30 days when the user ticks "keep me signed in" on the login form (default off). Refresh-token rotation issues a new token but never moves that deadline, so an active user is still forced to log in again once the original expiry passes. Server restarts do not end sessions (refresh tokens live in PostgreSQL).
 - **V1 EV input:** Users manually enter battery capacity, maximum AC charging power, and default charger power.
 - **V1 charging optimization:** Only continuous charging windows are supported. The selected price slots must be consecutive.
 - **Preview vs. confirm:** `POST /charging-plans/preview` calculates up to three cheapest candidates and writes nothing to the database. `POST /charging-schedules` re-runs the calculation against the latest prices, keeps only the candidate the user selected, and stores it as one `charging_plans` row, its `charging_plan_slots`, and one `charging_schedules` row in a single transaction. Unselected candidates and infeasible previews are never persisted.

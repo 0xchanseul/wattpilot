@@ -16,6 +16,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import java.time.Duration;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -55,7 +56,7 @@ class AuthApiIntegrationTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.accessToken").isNotEmpty())
                 .andExpect(jsonPath("$.tokenType").value("Bearer"))
-                .andExpect(jsonPath("$.expiresIn").value(3600))
+                .andExpect(jsonPath("$.expiresIn").value(1800))
                 .andExpect(jsonPath("$.user.email").value(email))
                 .andExpect(jsonPath("$.user.status").value("ACTIVE"))
                 .andExpect(jsonPath("$.user.defaultPriceArea").value("NO1"))
@@ -147,6 +148,36 @@ class AuthApiIntegrationTest {
     }
 
     @Test
+    void rememberMeAtLoginGivesALongerLivedCookieThanTheDefault() throws Exception {
+        String email = nextEmail();
+        mockMvc.perform(signUp(email, "wattpilot-secret")).andExpect(status().isCreated());
+
+        int defaultMaxAge = refreshCookieMaxAge(mockMvc.perform(login(email, "wattpilot-secret", false))
+                .andExpect(status().isOk()).andReturn().getResponse());
+        int rememberMeMaxAge = refreshCookieMaxAge(mockMvc.perform(login(email, "wattpilot-secret", true))
+                .andExpect(status().isOk()).andReturn().getResponse());
+
+        // 7 days vs 30 days, with a minute of slack for the request round-trip.
+        assertThat(defaultMaxAge).isBetween(seconds(Duration.ofDays(7).minusMinutes(1)), seconds(Duration.ofDays(7)));
+        assertThat(rememberMeMaxAge)
+                .isBetween(seconds(Duration.ofDays(30).minusMinutes(1)), seconds(Duration.ofDays(30)));
+    }
+
+    @Test
+    void rotatingARefreshTokenDoesNotPushOutTheSessionDeadline() throws Exception {
+        String email = nextEmail();
+        mockMvc.perform(signUp(email, "wattpilot-secret")).andExpect(status().isCreated());
+        MockHttpServletResponse loggedIn = mockMvc.perform(login(email, "wattpilot-secret", true))
+                .andExpect(status().isOk()).andReturn().getResponse();
+
+        MockHttpServletResponse rotated = mockMvc.perform(refresh(refreshCookieValue(loggedIn)))
+                .andExpect(status().isOk()).andReturn().getResponse();
+
+        // The successor cookie expires no later than the original: the deadline never moves forward.
+        assertThat(refreshCookieMaxAge(rotated)).isLessThanOrEqualTo(refreshCookieMaxAge(loggedIn));
+    }
+
+    @Test
     void logoutRevokesTheRefreshTokenClearsTheCookieAndIsRepeatable() throws Exception {
         MockHttpServletResponse issued = signUpAndReturnResponse(nextEmail());
         String accessToken = JsonPath.read(issued.getContentAsString(), "$.accessToken");
@@ -211,9 +242,21 @@ class AuthApiIntegrationTest {
     }
 
     private static String refreshCookieValue(MockHttpServletResponse response) {
+        return refreshCookie(response).getValue();
+    }
+
+    private static int refreshCookieMaxAge(MockHttpServletResponse response) {
+        return refreshCookie(response).getMaxAge();
+    }
+
+    private static Cookie refreshCookie(MockHttpServletResponse response) {
         Cookie cookie = response.getCookie(REFRESH_COOKIE);
         assertThat(cookie).as("refresh token cookie").isNotNull();
-        return cookie.getValue();
+        return cookie;
+    }
+
+    private static int seconds(Duration duration) {
+        return (int) duration.toSeconds();
     }
 
     private static RequestBuilder signUp(String email, String password) {
@@ -222,6 +265,14 @@ class AuthApiIntegrationTest {
                 .content("""
                         {"email":"%s","password":"%s","name":"Iris","defaultPriceArea":"NO1"}
                         """.formatted(email, password));
+    }
+
+    private static RequestBuilder login(String email, String password, boolean rememberMe) {
+        return post("/api/v1/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"email":"%s","password":"%s","rememberMe":%s}
+                        """.formatted(email, password, rememberMe));
     }
 
     private static RequestBuilder refresh(String refreshToken) {

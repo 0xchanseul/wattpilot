@@ -3,6 +3,8 @@ import type { PriceArea, User } from '@/types/api'
 export interface LoginInput {
   email: string
   password: string
+  /** When true, ask the backend for the longer "keep me signed in" session lifetime. */
+  rememberMe: boolean
 }
 
 export interface SignUpInput {

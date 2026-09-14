@@ -572,10 +572,11 @@ components:
       description: >-
         Sets the `wp_refresh_token` cookie carrying the (rotated) refresh token.
         Attributes: `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/api/v1/auth`,
-        `Max-Age` equal to the refresh-token lifetime.
+        `Max-Age` equal to the time left until the session's absolute expiration
+        (7 days from login by default, 30 days when `rememberMe` was set; not extended by a refresh).
       schema: { type: string }
       example: >-
-        wp_refresh_token=abc123; Max-Age=1209600; Path=/api/v1/auth; Secure; HttpOnly; SameSite=Lax
+        wp_refresh_token=abc123; Max-Age=604800; Path=/api/v1/auth; Secure; HttpOnly; SameSite=Lax
 
   parameters:
     Page:
@@ -706,6 +707,12 @@ components:
       properties:
         email: { type: string, format: email, example: iris@example.com }
         password: { type: string, format: password, writeOnly: true, example: WattPilot123! }
+        rememberMe:
+          type: boolean
+          default: false
+          description: >-
+            When true, the session's absolute expiration is 30 days from this login instead of the
+            default 7. Rotating the refresh token never extends that deadline. Omitted means false.
 
     AccessTokenResponse:
       type: object
@@ -713,7 +720,7 @@ components:
       properties:
         accessToken: { type: string, readOnly: true }
         tokenType: { type: string, enum: [Bearer], example: Bearer }
-        expiresIn: { type: integer, format: int64, description: Access-token lifetime in seconds, example: 3600 }
+        expiresIn: { type: integer, format: int64, description: Access-token lifetime in seconds, example: 1800 }
 
     AuthResponse:
       allOf:
