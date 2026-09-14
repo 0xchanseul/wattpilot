@@ -23,6 +23,7 @@ tags:
   - { name: Charging Optimization, description: Charging plan optimization and calculated recommendations }
   - { name: Scheduler, description: Charging schedule lifecycle, mock-charging execution, and cancellation }
   - { name: Charging History, description: Executed charging results and savings performance }
+  - { name: Dashboard, description: Home-screen aggregate view }
   - { name: Savings, description: Cost and savings summaries }
 
 paths:
@@ -495,6 +496,38 @@ paths:
               schema: { $ref: '#/components/schemas/ChargingHistoryDetail' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+
+  /dashboard:
+    get:
+      tags: [Dashboard]
+      summary: Get my dashboard
+      description: |
+        The home-screen aggregate: everything the Dashboard needs in one call, built entirely from
+        `charging_sessions`/`charging_schedules`/`charging_plans`/`electricity_prices` — no dedicated
+        table.
+
+        `nextCharging` is the caller's nearest active reservation: the `IN_PROGRESS` schedule if one is
+        currently charging, otherwise the earliest-starting `WAITING` one; `null` if there is none.
+
+        `currentPrice` covers the current hour in the caller's `defaultPriceArea` against today's
+        Norwegian-calendar-day (Europe/Oslo) average; `null` if no stored interval covers "now" (e.g.
+        today's prices have not been imported yet) — the rest of the dashboard still loads.
+
+        `summary`, `savingsTrend` (last 30 Europe/Oslo calendar days, zero-filled) and `costComparison`
+        (same 30-day window) are realized figures — `baselineCostNok - actualCostNok` over `COMPLETED`
+        sessions — the same convention `GET /charging-history` uses, never the plan's own
+        `estimatedSavingsNok`/`optimizedCostNok` snapshot.
+
+        `recentSessions` is the last 3 `COMPLETED` sessions, newest first — a slim view; the full
+        record is `GET /charging-history`.
+      operationId: getDashboard
+      responses:
+        '200':
+          description: Dashboard aggregate
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Dashboard' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
 
   /savings/summary:
     get:
@@ -1171,6 +1204,109 @@ components:
           type: array
           description: The plan's per-hour figures, calculation order. Planned, not a per-hour actual.
           items: { $ref: '#/components/schemas/ChargingPlanSlot' }
+
+    Dashboard:
+      type: object
+      required: [summary, currentPrice, savingsTrend, costComparison, recentSessions]
+      description: |
+        The `GET /dashboard` payload. `nextCharging` and `currentPrice` are independently nullable; every
+        other block is always present, empty/zeroed when there is no data.
+      properties:
+        summary: { $ref: '#/components/schemas/DashboardSummary' }
+        nextCharging: { allOf: [{ $ref: '#/components/schemas/NextCharging' }], nullable: true }
+        currentPrice: { allOf: [{ $ref: '#/components/schemas/CurrentElectricityPrice' }], nullable: true }
+        savingsTrend:
+          type: array
+          description: Last 30 Europe/Oslo calendar days, ascending, zero-filled.
+          items: { $ref: '#/components/schemas/SavingsTrendPoint' }
+        costComparison: { $ref: '#/components/schemas/CostComparison' }
+        recentSessions:
+          type: array
+          description: Last 3 COMPLETED sessions, newest first.
+          items: { $ref: '#/components/schemas/RecentChargingSession' }
+
+    DashboardSummary:
+      type: object
+      required: [totalSavingsNok, totalEnergyKwh, totalSessions, averageCostPerKwh]
+      description: |
+        All-time realized totals over every COMPLETED session. `totalSavingsNok` is
+        `baselineCostNok - actualCostNok` (realized), never the plan's own `estimatedSavingsNok`.
+        `averageCostPerKwh` is `totalActualCostNok / totalEnergyKwh` (energy-weighted), zero when
+        nothing has been charged yet.
+      properties:
+        totalSavingsNok: { type: number, format: double }
+        totalEnergyKwh: { type: number, format: double, minimum: 0 }
+        totalSessions: { type: integer, format: int64, minimum: 0, description: COMPLETED count. }
+        averageCostPerKwh: { type: number, format: double, minimum: 0 }
+
+    NextCharging:
+      type: object
+      required: [scheduleId, evId, evName, startAt, endAt, estimatedEnergyKwh, estimatedCostNok, estimatedSavingsNok, status]
+      description: |
+        The caller's nearest active reservation: the IN_PROGRESS schedule if one is currently charging,
+        otherwise the earliest-starting WAITING one. `estimatedSavingsNok` is the plan's own
+        `expectedSavingsNok` (baseline - optimized) — legitimately an estimate, since the charge has not
+        happened yet.
+      properties:
+        scheduleId: { type: integer, format: int64, minimum: 1 }
+        evId: { type: integer, format: int64, minimum: 1 }
+        evName: { type: string }
+        startAt: { type: string, format: date-time }
+        endAt: { type: string, format: date-time }
+        estimatedEnergyKwh: { type: number, format: double }
+        estimatedCostNok: { type: number, format: double }
+        estimatedSavingsNok: { type: number, format: double }
+        status: { $ref: '#/components/schemas/ScheduleStatus' }
+
+    CurrentElectricityPrice:
+      type: object
+      required: [priceNokPerKwh]
+      description: |
+        The current hour's price in the caller's `defaultPriceArea` against today's Norwegian-calendar-day
+        average. `todayAveragePriceNokPerKwh` and `differencePercent` are independently nullable.
+      properties:
+        priceNokPerKwh: { type: number, format: double }
+        todayAveragePriceNokPerKwh: { type: number, format: double, nullable: true }
+        differencePercent:
+          type: number
+          format: double
+          nullable: true
+          description: (priceNokPerKwh - todayAveragePriceNokPerKwh) / todayAveragePriceNokPerKwh * 100.
+
+    SavingsTrendPoint:
+      type: object
+      required: [date, savingsNok]
+      properties:
+        date: { type: string, format: date }
+        savingsNok: { type: number, format: double, description: Realized savings (baseline - actual) for the day; 0 if no session completed. }
+
+    CostComparison:
+      type: object
+      required: [baselineCostNok, optimizedCostNok, savingsNok, savingsPercent]
+      description: |
+        Baseline vs. realized cost over the last 30 days of COMPLETED sessions. Despite the name,
+        `optimizedCostNok` is backed by the realized `actualCostNok` sum, matching the charging-history
+        convention that only realized figures are aggregated (numerically identical to the plan's
+        optimized estimate in V1, since mock charging always finishes exactly as planned).
+      properties:
+        baselineCostNok: { type: number, format: double, minimum: 0 }
+        optimizedCostNok: { type: number, format: double, minimum: 0 }
+        savingsNok: { type: number, format: double }
+        savingsPercent: { type: number, format: double, description: savingsNok / baselineCostNok * 100; 0 when baselineCostNok is 0. }
+
+    RecentChargingSession:
+      type: object
+      required: [sessionId, evId, evName, startedAt, endedAt, actualEnergyKwh, actualCostNok, realizedSavingsNok]
+      description: A completed charging session, slimmed down from ChargingHistoryItem for the Dashboard.
+      properties:
+        sessionId: { type: integer, format: int64, minimum: 1 }
+        evId: { type: integer, format: int64, minimum: 1 }
+        evName: { type: string }
+        startedAt: { type: string, format: date-time, nullable: true }
+        endedAt: { type: string, format: date-time, nullable: true }
+        actualEnergyKwh: { type: number, format: double }
+        actualCostNok: { type: number, format: double }
+        realizedSavingsNok: { type: number, format: double, description: baselineCostNok - actualCostNok. }
 
     SavingsSummary:
       type: object

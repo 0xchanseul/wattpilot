@@ -15,6 +15,7 @@ import org.springframework.data.domain.Limit;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -25,6 +26,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -170,11 +172,29 @@ public class ElectricityPriceService {
      * {@code GET /electricity-prices/latest}; a missing interval is a 404.
      */
     public ElectricityPriceResponse getCurrentPrice(PriceArea priceArea) {
+        return findCurrentPrice(priceArea)
+                .orElseThrow(() -> new BusinessException(ErrorCode.ELECTRICITY_PRICE_NOT_FOUND));
+    }
+
+    /**
+     * Same lookup as {@link #getCurrentPrice}, without the 404: callers that can degrade gracefully
+     * (e.g. the Dashboard) when no interval covers "now" use this instead.
+     */
+    public Optional<ElectricityPriceResponse> findCurrentPrice(PriceArea priceArea) {
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
         return repository.findCoveringInstant(V1_PROVIDER, priceArea, now, Limit.of(1)).stream()
                 .findFirst()
-                .map(price -> ElectricityPriceResponse.from(price, PRICE_ZONE))
-                .orElseThrow(() -> new BusinessException(ErrorCode.ELECTRICITY_PRICE_NOT_FOUND));
+                .map(price -> ElectricityPriceResponse.from(price, PRICE_ZONE));
+    }
+
+    /**
+     * Average {@code pricePerKwh} over one Norwegian calendar day in the given area, or empty if no
+     * hours are stored for that day yet. Backs the Dashboard's "today's average price" figure.
+     */
+    public Optional<BigDecimal> getAveragePrice(PriceArea priceArea, LocalDate date) {
+        OffsetDateTime dayStart = date.atStartOfDay(PRICE_ZONE).toOffsetDateTime();
+        OffsetDateTime nextDayStart = date.plusDays(1).atStartOfDay(PRICE_ZONE).toOffsetDateTime();
+        return Optional.ofNullable(repository.avgPriceInRange(V1_PROVIDER, priceArea, dayStart, nextDayStart));
     }
 
     private static List<OffsetDateTime> startInstantsAsOffset(Iterable<Instant> instants) {

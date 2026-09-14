@@ -243,6 +243,7 @@ com.wattpilot
 ├── charging
 ├── scheduler
 ├── history
+├── dashboard
 ├── integration
 └── common
     ├── config

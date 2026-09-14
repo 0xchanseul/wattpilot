@@ -5,6 +5,7 @@ import com.wattpilot.charging.repository.ChargingPlanRepository;
 import com.wattpilot.charging.repository.ChargingPlanSlotRepository;
 import com.wattpilot.charging.repository.ChargingScheduleRepository;
 import com.wattpilot.charging.repository.ChargingSessionRepository;
+import com.wattpilot.dashboard.repository.DashboardRepository;
 import com.wattpilot.electricity.repository.ElectricityPriceRepository;
 import com.wattpilot.ev.repository.EvRepository;
 import com.wattpilot.history.repository.ChargingHistoryRepository;
@@ -60,6 +61,9 @@ class OpenApiEndpointsSmokeTest {
 
     @MockitoBean
     ChargingHistoryRepository chargingHistoryRepository;
+
+    @MockitoBean
+    DashboardRepository dashboardRepository;
 
     @Test
     void apiDocsExposesConfiguredInfo() throws Exception {

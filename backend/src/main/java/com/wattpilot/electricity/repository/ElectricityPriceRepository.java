@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.Collection;
 import java.util.List;
@@ -84,4 +85,20 @@ public interface ElectricityPriceRepository extends JpaRepository<ElectricityPri
                                                @Param("priceArea") PriceArea priceArea,
                                                @Param("at") OffsetDateTime at,
                                                Limit limit);
+
+    /**
+     * Average {@code pricePerKwh} over hours whose start falls in {@code [from, to)}, or {@code null}
+     * if none are stored. Backs the Dashboard's "today's average price" figure.
+     */
+    @Query("""
+            select avg(p.pricePerKwh) from ElectricityPrice p
+            where p.provider = :provider
+              and p.priceArea = :priceArea
+              and p.startsAt >= :from
+              and p.startsAt < :to
+            """)
+    BigDecimal avgPriceInRange(@Param("provider") PriceProvider provider,
+                               @Param("priceArea") PriceArea priceArea,
+                               @Param("from") OffsetDateTime from,
+                               @Param("to") OffsetDateTime to);
 }

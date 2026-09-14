@@ -39,6 +39,7 @@ com.wattpilot
 ├─ charging
 ├─ scheduler
 ├─ history
+├─ dashboard
 ├─ integration
 └─ common
 ```
@@ -235,9 +236,18 @@ On a successful completion, `actualEnergyKwh` / `actualCostNok` / `baselineCostN
 
 History treats **`realizedSavingsNok` as the saving** — the per-item value and the summary's `totalSavingsNok` both use `baseline - actual`, never the estimate. In V1 mock charging finishes exactly as planned so the two are numerically equal, but the concepts stay separate (the DB column `estimated_savings_nok` is left as-is; the distinction lives in the DTOs). `plannedSlots` are the plan's per-hour rows from `charging_plan_slots` and are named to make clear they are planned, not a per-hour execution result — V1 stores no per-slot actual, and the deprecated `charging_schedule_slots` table is unused.
 
-**Summary aggregation** lives in `ChargingHistoryRepository` (one query: session counts over `COMPLETED`+`FAILED`, plus `SUM(actualEnergyKwh)` and `SUM(baselineCostNok - actualCostNok)` over the `COMPLETED` rows), so a later dashboard / savings-summary feature can reuse it. `successRate` = `COMPLETED` / total, one decimal.
+**Summary aggregation** lives in `ChargingHistoryRepository` (one query: session counts over `COMPLETED`+`FAILED`, plus `SUM(actualEnergyKwh)` and `SUM(baselineCostNok - actualCostNok)` over the `COMPLETED` rows) — `com.wattpilot.dashboard` reuses the same realized-savings convention (a separate query, since the Dashboard also needs `SUM(actualCostNok)` for `averageCostPerKwh`). `successRate` = `COMPLETED` / total, one decimal.
 
 - **Indexes:** the join is covered by `idx_charging_plans_user_created`, `uq_charging_schedules_plan`, and `uq_charging_sessions_schedule`; no new index or migration is added for V1.
+
+# Dashboard
+
+`com.wattpilot.dashboard` builds the home-screen aggregate (`GET /dashboard`) from data other modules already own — another **read model**, no new table, same join style as `com.wattpilot.history`'s `charging_sessions → charging_schedules → charging_plans`. `DashboardRepository` adds three queries of its own (an all-time realized aggregate, a 30-day-windowed version of the same for `costComparison`, and a 30-day per-session list for `savingsTrend`), plus a slim `recentSessions` projection; `nextCharging` reuses `ChargingScheduleRepository`'s active-schedule query and `currentPrice` reuses `ElectricityPriceService`.
+
+- **Realized savings only.** `summary.totalSavingsNok`, `savingsTrend` and `costComparison` all use `baselineCostNok - actualCostNok`, matching Charging History's convention — never `charging_sessions.estimated_savings_nok`/`optimized_cost_nok`. `costComparison.optimizedCostNok` is named after the plan's field but is backed by the realized `actualCostNok` sum (numerically identical in V1).
+- **`nextCharging`** is the `IN_PROGRESS` schedule if one is charging, otherwise the earliest-starting `WAITING` one — applied explicitly in `DashboardService`, not relied on via the query's `scheduledStartAt` ordering. `null` when the user has no active schedule.
+- **`currentPrice`** uses the caller's `users.default_price_area` (Dashboard takes no request parameters). `null` when no stored interval covers "now", so the rest of the payload still loads; `ElectricityPriceService.findCurrentPrice` is the non-throwing counterpart to `getCurrentPrice` (used by `GET /electricity-prices/latest`, which still 404s).
+- **`savingsTrend`** zero-fills all 30 Europe/Oslo calendar days for chart use. Day-bucketing happens in `DashboardService`, not the query: a timezone-aware `GROUP BY date` has no portable JPQL expression, and a single user's 30-day session volume is small enough that fetching the raw rows costs nothing.
 
 # Deployment Architecture
 
