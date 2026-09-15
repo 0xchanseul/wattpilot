@@ -1,18 +1,22 @@
+import { useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { ChevronLeftIcon, InfoIcon } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { ApiErrorAlert } from '@/components/api-error-alert'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useEvQuery } from '@/features/ev/queries'
 import { ScheduleStatusBadge } from '@/features/charging/components/schedule-status-badge'
 import { ScheduleTimeline } from '@/features/charging/components/schedule-timeline'
 import { ChargingSummaryCard } from '@/features/charging/components/charging-summary-card'
-import { useChargingScheduleQuery } from '@/features/charging/queries'
+import { useCancelChargingScheduleMutation, useChargingScheduleQuery } from '@/features/charging/queries'
 import { chargingFailureText } from '@/features/charging/failure-copy'
 import type { ChargingSchedule, ChargingSessionSummary } from '@/features/charging/types'
 import { cn } from '@/lib/utils'
+import { errorMessage } from '@/lib/error-message'
 import { useBackTarget } from '@/lib/navigation'
 import { formatDateTime, formatKwh, formatNok } from '@/lib/format'
 
@@ -48,6 +52,8 @@ export function ChargingScheduleDetailPage() {
           </div>
 
           <StatusBanner schedule={schedule} />
+
+          {schedule.status === 'WAITING' ? <CancelScheduleAction scheduleId={schedule.id} /> : null}
 
           <Card>
             <CardHeader>
@@ -116,6 +122,52 @@ function StatusBanner({ schedule }: { schedule: ChargingSchedule }) {
     default:
       return null
   }
+}
+
+function CancelScheduleAction({ scheduleId }: { scheduleId: number }) {
+  const cancel = useCancelChargingScheduleMutation(scheduleId)
+  const [confirming, setConfirming] = useState(false)
+
+  const handleCancel = async () => {
+    try {
+      await cancel.mutateAsync()
+      toast.success('Charging schedule cancelled')
+    } catch (cancelError) {
+      toast.error(errorMessage(cancelError))
+    } finally {
+      setConfirming(false)
+    }
+  }
+
+  if (confirming) {
+    return (
+      <div className="flex items-center gap-2">
+        <span className="text-muted-foreground text-sm">Cancel this reservation?</span>
+        <Button
+          variant="destructive"
+          size="sm"
+          onClick={handleCancel}
+          disabled={cancel.isPending}
+        >
+          Yes, cancel
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setConfirming(false)}
+          disabled={cancel.isPending}
+        >
+          Never mind
+        </Button>
+      </div>
+    )
+  }
+
+  return (
+    <Button variant="outline" onClick={() => setConfirming(true)}>
+      Cancel reservation
+    </Button>
+  )
 }
 
 /**

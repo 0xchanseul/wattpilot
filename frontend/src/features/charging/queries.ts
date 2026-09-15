@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import {
+  cancelChargingSchedule,
   createChargingSchedule,
   getChargingSchedule,
   getChargingSchedulesOverview,
@@ -46,5 +47,16 @@ export function useChargingScheduleQuery(scheduleId: number) {
     queryKey: chargingKeys.scheduleDetail(scheduleId),
     queryFn: () => getChargingSchedule(scheduleId),
     enabled: Number.isFinite(scheduleId) && scheduleId > 0,
+  })
+}
+
+export function useCancelChargingScheduleMutation(scheduleId: number) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => cancelChargingSchedule(scheduleId),
+    onSuccess: (schedule) => {
+      queryClient.setQueryData(chargingKeys.scheduleDetail(scheduleId), schedule)
+      void queryClient.invalidateQueries({ queryKey: chargingKeys.schedules() })
+    },
   })
 }

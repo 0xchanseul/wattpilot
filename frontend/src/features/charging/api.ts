@@ -32,3 +32,10 @@ export function getChargingSchedule(scheduleId: number): Promise<ChargingSchedul
 export function getChargingSchedulesOverview(): Promise<ChargingSchedulesOverview> {
   return apiRequest<ChargingSchedulesOverview>('/charging-schedules')
 }
+
+/** POST /charging-schedules/{scheduleId}/cancel — only a WAITING schedule can be cancelled. */
+export function cancelChargingSchedule(scheduleId: number): Promise<ChargingSchedule> {
+  return apiRequest<ChargingSchedule>(`/charging-schedules/${scheduleId}/cancel`, {
+    method: 'POST',
+  })
+}
