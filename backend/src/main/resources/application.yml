@@ -12,6 +12,19 @@ spring:
         default-page-size: 20
         max-page-size: 100
 
+management:
+  endpoints:
+    web:
+      exposure:
+        # Only health is reachable over HTTP; other actuator endpoints (env, beans, etc.) could
+        # leak configuration and are never exposed, in any profile.
+        include: health
+  endpoint:
+    health:
+      # Never show dependency details (DB, disk space) to an unauthenticated caller; the ALB/ECS
+      # health check only needs the top-level UP/DOWN status.
+      show-details: never
+
 wattpilot:
   charging:
     # Fraction of grid energy that reaches the battery. V1 uses one system-wide value

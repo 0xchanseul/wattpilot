@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -21,20 +22,27 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+/**
+ * The {@code prod} profile is the one environment where the API contract should not be publicly
+ * browsable (see docs/deployment.md, "Swagger exposure"). Every other profile (local, cloud) keeps
+ * Swagger UI on for development and for the temporary Azure test environment's SSH-tunnel access.
+ */
 @SpringBootTest(properties = {
         "spring.autoconfigure.exclude="
                 + "org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration,"
                 + "org.springframework.boot.hibernate.autoconfigure.HibernateJpaAutoConfiguration,"
-                + "org.springframework.boot.flyway.autoconfigure.FlywayAutoConfiguration"
+                + "org.springframework.boot.flyway.autoconfigure.FlywayAutoConfiguration",
+        // application-prod.yml intentionally has no CORS default and no JWT secret of its own;
+        // supply just enough to let the security filter chain start.
+        "wattpilot.security.jwt.secret=dGVzdC1vbmx5LXNlY3JldC1kby1ub3QtdXNlLWluLXByb2Q="
 })
+@ActiveProfiles("prod")
 @AutoConfigureMockMvc
-class OpenApiEndpointsSmokeTest {
+class ProdProfileSwaggerDisabledTest {
 
     @Autowired
     MockMvc mockMvc;
 
-    // The persistence layer is excluded above, so the repositories the services depend on are
-    // stubbed; this test only cares that the OpenAPI document and Swagger UI are served.
     @MockitoBean
     UserRepository userRepository;
 
@@ -66,33 +74,19 @@ class OpenApiEndpointsSmokeTest {
     DashboardRepository dashboardRepository;
 
     @Test
-    void apiDocsExposesConfiguredInfo() throws Exception {
+    void apiDocsIsNotServedInProd() throws Exception {
         mockMvc.perform(get("/v3/api-docs"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.info.title").value("WattPilot API"))
-                .andExpect(jsonPath("$.info.version").value("v1"));
+                .andExpect(status().isNotFound());
     }
 
     @Test
-    void apiDocsDeclaresBearerAuthAndExemptsThePublicAuthEndpoints() throws Exception {
-        mockMvc.perform(get("/v3/api-docs"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.components.securitySchemes.bearerAuth.scheme").value("bearer"))
-                .andExpect(jsonPath("$.components.securitySchemes.bearerAuth.bearerFormat").value("JWT"))
-                .andExpect(jsonPath("$.security[0].bearerAuth").isArray())
-                .andExpect(jsonPath("$.paths['/api/v1/auth/login'].post.security").isEmpty())
-                .andExpect(jsonPath("$.paths['/api/v1/users/me'].get.security").doesNotExist());
-    }
-
-    @Test
-    void swaggerUiIsAvailable() throws Exception {
+    void swaggerUiIsNotServedInProd() throws Exception {
         mockMvc.perform(get("/swagger-ui/index.html"))
-                .andExpect(status().isOk());
+                .andExpect(status().isNotFound());
     }
 
     @Test
-    void actuatorHealthIsPubliclyAvailable() throws Exception {
-        // The ALB/ECS health check calls this endpoint with no Authorization header.
+    void actuatorHealthStaysPubliclyAvailableInProd() throws Exception {
         mockMvc.perform(get("/actuator/health"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("UP"));
