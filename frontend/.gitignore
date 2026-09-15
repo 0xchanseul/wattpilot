@@ -12,10 +12,14 @@ dist
 dist-ssr
 *.local
 
-# Local environment files (only .env.example is committed)
+# Local environment files. .env.example documents the local shape; .env.production is committed
+# too because it holds no secret, only the build-time API base URL Vite bakes into the production
+# bundle (see docs/deployment.md, "Frontend deployment"). Anything else (.env, .env.local,
+# .env.production.local) stays untracked.
 .env
 .env.*
 !.env.example
+!.env.production
 
 # Editor directories and files
 .vscode/*
