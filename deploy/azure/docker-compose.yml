@@ -8,6 +8,9 @@ services:
     image: ${BACKEND_IMAGE:?set BACKEND_IMAGE in deploy/azure/.env}
     container_name: wattpilot-backend
     env_file:
+      # Path relative to this file by convention. On the current production VM the real env file
+      # lives at /etc/wattpilot/wattpilot.env instead — this line was hand-edited to point there;
+      # check the VM's actual copy of this file rather than assuming the repo default applies.
       - .env
     environment:
       SPRING_PROFILES_ACTIVE: prod

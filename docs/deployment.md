@@ -121,9 +121,9 @@ is Production, but the free-grant expiry still needs a plan (upgrade to a paid t
 | `backend/Dockerfile` | Multi-stage build of the backend image (built locally, not on the VM) |
 | `backend/src/main/resources/application-prod.yml` | `prod` profile: managed DB with TLS, Swagger disabled, only `/actuator/health` exposed |
 | `backend/src/main/resources/application-cloud.yml` | `cloud` profile: currently unused, kept for a possible future throwaway environment |
-| `deploy/azure/docker-compose.yml` | What runs on the VM (backend container, bound to `127.0.0.1:8080`) |
-| `deploy/azure/.env.example` | Template for `deploy/azure/.env`, created on the VM and never committed |
-| `deploy/azure/nginx/wattpilot.conf` | nginx site config: TLS termination, static frontend, `/api/` reverse proxy |
+| `deploy/azure/docker-compose.yml` | Source of truth for what runs on the VM (backend container, bound to `127.0.0.1:8080`). Lives at `/app/wattpilot/docker-compose.yml` on the VM — must be copied/edited there by hand, it is not synced automatically |
+| `deploy/azure/.env.example` | Template for the real runtime env file, which lives at `/etc/wattpilot/wattpilot.env` on the VM (not `.env` next to the compose file) and is never committed |
+| `deploy/azure/nginx/wattpilot.conf` | nginx site config: TLS termination, static frontend (served from `/app/wattpilot/frontend/dist`), `/api/` reverse proxy |
 
 ## Procedure
 
@@ -217,9 +217,16 @@ docker compose logs -f
 
 ### 7. Production cutover: domain, TLS, nginx, frontend
 
-This is the step that turned the bootstrap VM above into Production. It assumes DNS for
-`wattpilot.dev` and `www.wattpilot.dev` already points at the VM's public IP, and that a Let's
-Encrypt certificate has already been issued via certbot.
+This is the step that turned the bootstrap VM above into Production, completed and verified
+2026-09-15. It assumes DNS for `wattpilot.dev` and `www.wattpilot.dev` already points at the VM's
+public IP, and that a Let's Encrypt certificate has already been issued via certbot.
+
+**VM path note:** on this VM, the backend compose project actually lives at **`/app/wattpilot`**,
+not `~/wattpilot` as the earlier bootstrap steps above assume — check where `docker-compose.yml`
+really is (`sudo find / -maxdepth 3 -name docker-compose.yml 2>/dev/null`) before following the
+paths below blindly on a different VM. The frontend static files also ended up at
+`/app/wattpilot/frontend/dist` rather than `/var/www/...`, to keep everything under one directory.
+Whichever path you use, `deploy/azure/nginx/wattpilot.conf`'s `root` line must match exactly.
 
 1. **Open 80/443, close 8080 externally.** nginx becomes the only public entry point.
 
@@ -230,12 +237,16 @@ Encrypt certificate has already been issued via certbot.
    ```
 
 2. **Switch the backend to the `prod` profile and bind it to localhost.** `deploy/azure/docker-compose.yml`
-   already sets `SPRING_PROFILES_ACTIVE: prod` and `ports: ["127.0.0.1:8080:8080"]`; on the VM:
+   in this repo already sets `SPRING_PROFILES_ACTIVE: prod` and `ports: ["127.0.0.1:8080:8080"]` —
+   but that file has to actually be copied/edited into place on the VM; a repo-side edit does
+   nothing by itself. On the VM:
 
    ```bash
-   cd ~/wattpilot
-   # update deploy/azure/.env: CORS_ALLOWED_ORIGINS=https://wattpilot.dev,https://www.wattpilot.dev
-   docker compose pull && docker compose up -d
+   cd /app/wattpilot
+   sudo nano docker-compose.yml   # confirm SPRING_PROFILES_ACTIVE: prod and the 127.0.0.1:8080 port binding
+   sudo nano /etc/wattpilot/wattpilot.env   # confirm CORS_ALLOWED_ORIGINS=https://wattpilot.dev,https://www.wattpilot.dev
+   docker compose pull && docker compose up -d   # `up -d`, not just `restart` — env/config changes need a recreate
+   docker exec wattpilot-backend env | grep -E "SPRING_PROFILES_ACTIVE|CORS"   # confirm both took effect
    ```
 
 3. **Install nginx and install the site config** (`deploy/azure/nginx/wattpilot.conf`):
@@ -251,6 +262,13 @@ Encrypt certificate has already been issued via certbot.
    sudo nginx -t && sudo systemctl reload nginx
    ```
 
+   Two gotchas hit while doing this: `cp file /path/that/is/a/directory` silently copies the file
+   *into* that directory instead of creating `/path/that/is/a/directory` as a file — if
+   `sites-available/wattpilot` already existed as a directory, delete it (`sudo rm -rf`) before
+   `cp`, and make sure `sites-enabled/wattpilot` ends up a symlink to a *file*. Also, nginx 1.24.x
+   (Ubuntu 24.04's packaged version) doesn't support the newer `http2 on;` directive — this repo's
+   conf already uses the older `listen 443 ssl http2;` form for that reason.
+
 4. **Build and deploy the frontend** (`frontend/.env.production` already points at
    `https://www.wattpilot.dev/api/v1`):
 
@@ -258,12 +276,23 @@ Encrypt certificate has already been issued via certbot.
    # local
    cd frontend
    npm run build
-   rsync -avz dist/ azureuser@$VM_IP:/tmp/wattpilot-dist/
+   scp -r dist\* azureuser@$VM_IP:/tmp/wattpilot-dist/
 
-   # VM
+   # VM — target directory must match the conf file's `root`
    ssh azureuser@$VM_IP
-   sudo mkdir -p /var/www/wattpilot
-   sudo rsync -a --delete /tmp/wattpilot-dist/ /var/www/wattpilot/dist/
+   sudo mkdir -p /app/wattpilot/frontend/dist
+   sudo rsync -a --delete /tmp/wattpilot-dist/ /app/wattpilot/frontend/dist/
+   ls -la /app/wattpilot/frontend/dist   # must show index.html — an empty target causes an
+                                          # nginx 500 ("internal redirection cycle") on every request
+   ```
+
+   `/app` is not a locked-down home directory, but nginx's worker still runs as `www-data` and
+   needs explicit traverse/read permission down to the target:
+
+   ```bash
+   sudo chmod o+x /app /app/wattpilot /app/wattpilot/frontend
+   sudo chmod -R o+rX /app/wattpilot/frontend/dist
+   sudo -u www-data test -x /app/wattpilot/frontend/dist && echo OK || echo FAIL
    ```
 
 5. **Verify:**
@@ -271,8 +300,12 @@ Encrypt certificate has already been issued via certbot.
    - `curl -I https://www.wattpilot.dev` returns `200` and serves the SPA shell.
    - `curl https://www.wattpilot.dev/actuator/health` returns `{"status":"UP"}`.
    - `curl -I https://www.wattpilot.dev/v3/api-docs` returns `404` (Swagger is disabled in `prod`).
+     If this instead returns `200` (Swagger enabled), the `prod` profile isn't actually active —
+     recheck step 2.
    - Sign up / log in through the real domain; the refresh-token cookie now works normally
-     (`Secure` + real HTTPS + same-origin, no more tunnel needed).
+     (`Secure` + real HTTPS + same-origin, no more tunnel needed). A fresh sign-up is required even
+     if you already have a local-dev account — the production PostgreSQL Flexible Server is a
+     separate database from local Docker Postgres.
    - Certbot's systemd timer (`systemctl list-timers | grep certbot`) handles renewal; nginx just
      needs a reload after a renewal (`certbot renew` does this automatically via its nginx hook).
 
@@ -289,15 +322,15 @@ directly against the managed database if a run has not happened yet.
 docker build -t ghcr.io/<owner>/wattpilot-backend:latest ./backend
 docker push ghcr.io/<owner>/wattpilot-backend:latest
 
-# Backend: VM
-cd ~/wattpilot && docker compose pull && docker compose up -d
+# Backend: VM (docker-compose.yml lives at /app/wattpilot on this VM, see step 7 above)
+cd /app/wattpilot && docker compose pull && docker compose up -d
 
 # Frontend: local
 cd frontend && npm run build
-rsync -avz dist/ azureuser@$VM_IP:/tmp/wattpilot-dist/
+scp -r dist\* azureuser@$VM_IP:/tmp/wattpilot-dist/
 
 # Frontend: VM
-ssh azureuser@$VM_IP 'sudo rsync -a --delete /tmp/wattpilot-dist/ /var/www/wattpilot/dist/'
+ssh azureuser@$VM_IP 'sudo rsync -a --delete /tmp/wattpilot-dist/ /app/wattpilot/frontend/dist/'
 ```
 
 ## Cost guardrails and teardown
