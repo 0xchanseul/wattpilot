@@ -4,63 +4,73 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
- * shadcn/ui base theme (neutral) with a single brand accent: --primary is WattPilot's
- * brand ink (#071A22). Everything else is left at the stock palette on purpose.
+ * WattPilot "Bolt Dial" design system: fjord-midnight ink, cold-paper surfaces, and the aurora
+ * gradient (#3FD0E0 -> #35E08D) as the single recurring brand motif. --primary carries the flat
+ * aurora green so every default CTA, active nav state, and "positive/savings" accent (chart-2,
+ * reused across the app for realized savings) ties back to the logo without a per-page edit.
  */
 :root {
-  --radius: 0.625rem;
+  --radius: 0.85rem;
 
-  --background: #ffffff;
-  --foreground: #0a0a0a;
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display: 'Space Grotesk', 'Inter', ui-sans-serif, system-ui, sans-serif;
+
+  --background: #f3f7f5;
+  --foreground: #0b1f27;
   --card: #ffffff;
-  --card-foreground: #0a0a0a;
+  --card-foreground: #0b1f27;
   --popover: #ffffff;
-  --popover-foreground: #0a0a0a;
-  --primary: #071a22;
-  --primary-foreground: #f7fafc;
-  --secondary: #f5f5f5;
-  --secondary-foreground: #171717;
-  --muted: #f5f5f5;
-  --muted-foreground: #737373;
-  --accent: #f5f5f5;
-  --accent-foreground: #171717;
+  --popover-foreground: #0b1f27;
+  --primary: #0c8f5e;
+  --primary-foreground: #f5fbf8;
+  --secondary: #e7eeec;
+  --secondary-foreground: #0b1f27;
+  --muted: #edf3f1;
+  --muted-foreground: #5b6e6a;
+  --accent: #e3f7f0;
+  --accent-foreground: #0b1f27;
   --destructive: #e7000b;
   --destructive-foreground: #fafafa;
-  --border: #e5e5e5;
-  --input: #e5e5e5;
-  --ring: #071a22;
+  --border: #dde7e3;
+  --input: #dde7e3;
+  --ring: #35e08d;
 
-  --chart-1: #f0b100;
-  --chart-2: #009689;
-  --chart-3: #104e64;
-  --chart-4: #ffb900;
+  --fjord: #071a22;
+  --deep-water: #0c2b36;
+  --aurora-teal: #3fd0e0;
+  --aurora-green: #35e08d;
+
+  --chart-1: #3fd0e0;
+  --chart-2: #0c8f5e;
+  --chart-3: #0c2b36;
+  --chart-4: #f0b100;
   --chart-5: #fe9a00;
 }
 
 .dark {
-  --background: #0a0a0a;
-  --foreground: #fafafa;
-  --card: #171717;
-  --card-foreground: #fafafa;
-  --popover: #171717;
-  --popover-foreground: #fafafa;
-  --primary: #e8edf0;
+  --background: #071a22;
+  --foreground: #eef5f3;
+  --card: #0c2b36;
+  --card-foreground: #eef5f3;
+  --popover: #0c2b36;
+  --popover-foreground: #eef5f3;
+  --primary: #35e08d;
   --primary-foreground: #071a22;
-  --secondary: #262626;
-  --secondary-foreground: #fafafa;
-  --muted: #262626;
-  --muted-foreground: #a1a1a1;
-  --accent: #262626;
-  --accent-foreground: #fafafa;
+  --secondary: #123842;
+  --secondary-foreground: #eef5f3;
+  --muted: #123842;
+  --muted-foreground: #8fa8a3;
+  --accent: #123842;
+  --accent-foreground: #eef5f3;
   --destructive: #ff6467;
   --destructive-foreground: #fafafa;
   --border: #ffffff1a;
   --input: #ffffff26;
-  --ring: #8ea3ab;
+  --ring: #3fd0e0;
 
-  --chart-1: #1447e6;
-  --chart-2: #00bc7d;
-  --chart-3: #fe9a00;
+  --chart-1: #3fd0e0;
+  --chart-2: #35e08d;
+  --chart-3: #f0b100;
   --chart-4: #ad46ff;
   --chart-5: #ff2056;
 }
@@ -91,10 +101,19 @@
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
 
+  --color-fjord: var(--fjord);
+  --color-deep-water: var(--deep-water);
+  --color-aurora-teal: var(--aurora-teal);
+  --color-aurora-green: var(--aurora-green);
+
+  --font-sans: var(--font-sans);
+  --font-display: var(--font-display);
+
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+  --radius-xl: calc(var(--radius) + 6px);
+  --radius-2xl: calc(var(--radius) + 12px);
 }
 
 @layer base {
@@ -104,8 +123,76 @@
 
   body {
     @apply bg-background text-foreground;
-    font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    font-family: var(--font-sans);
     line-height: 1.5;
     min-height: 100vh;
+  }
+
+  h1,
+  h2,
+  h3,
+  [data-slot='card-title'] {
+    font-family: var(--font-display);
+    letter-spacing: -0.01em;
+  }
+
+  /* Headline figures (e.g. "text-2xl font-semibold tabular-nums") get the display face; smaller
+     supporting numbers ("font-medium tabular-nums") stay on body text for density and legibility. */
+  .font-semibold.tabular-nums {
+    font-family: var(--font-display);
+  }
+}
+
+@layer utilities {
+  .text-aurora-gradient {
+    background: linear-gradient(120deg, var(--aurora-teal), var(--aurora-green));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .bg-aurora-gradient {
+    background: linear-gradient(120deg, var(--aurora-teal), var(--aurora-green));
+  }
+}
+
+@keyframes aurora-pulse-ring {
+  0% {
+    transform: scale(0.85);
+    opacity: 0.55;
+  }
+  70% {
+    transform: scale(1.35);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1.35);
+    opacity: 0;
+  }
+}
+
+@keyframes aurora-flow {
+  to {
+    stroke-dashoffset: -48;
+  }
+}
+
+@keyframes aurora-drift {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }

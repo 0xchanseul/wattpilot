@@ -2,101 +2,127 @@ import type { ReactNode } from 'react'
 import { Link } from 'react-router'
 import { BatteryChargingIcon, CalendarClockIcon, CarIcon, PlusIcon, ZapIcon } from 'lucide-react'
 
+import evChargingImage from '@/assets/ev-charging.png'
+import evIdleImage from '@/assets/ev-idle.png'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ScheduleStatusBadge } from '@/features/charging/components/schedule-status-badge'
 import { formatDurationMinutes, formatKwh, formatNok, formatScheduleWindow } from '@/lib/format'
 import { listOrigin } from '@/lib/navigation'
-import { cn } from '@/lib/utils'
 import type { DashboardNextCharging } from '../types'
 
 const DASHBOARD_ORIGIN = listOrigin('/dashboard', 'Dashboard')
 
+/** Bright cyan-to-teal glow, top-right to bottom-left — the reference car render's backdrop. */
+const CARD_SURFACE = 'bg-gradient-to-bl from-[#eafffb] via-[#63e2d9] to-[#12a0a4]'
+
+/**
+ * The dashboard's primary hero card: whatever the EV is doing right now — charging, waiting on a
+ * scheduled window, or idle — rendered on the aurora glow surface used nowhere else on the page,
+ * so this stays the one bold element in the layout.
+ */
 export function NextChargingCard({ nextCharging }: { nextCharging: DashboardNextCharging | null }) {
+  const charging = nextCharging?.status === 'IN_PROGRESS'
+
   if (!nextCharging) {
     return (
-      <Card className="h-full">
-        <CardContent className="flex h-full flex-col items-center justify-center gap-3 py-10 text-center">
-          <div className="bg-secondary flex size-12 items-center justify-center rounded-full">
-            <CalendarClockIcon className="text-muted-foreground size-6" />
-          </div>
-          <div>
-            <p className="font-medium">No charging scheduled</p>
-            <p className="text-muted-foreground text-sm">
-              Plan a charge to have your EV charge when electricity is cheapest.
-            </p>
-          </div>
+      <div className={`${CARD_SURFACE} relative flex h-full min-h-72 flex-col overflow-hidden rounded-xl p-6`}>
+        <StatusRow label="No charging scheduled" charging={false} />
+        <div className="flex flex-1 items-center justify-center py-4">
+          <VehicleImage charging={false} />
+        </div>
+        <div className="relative space-y-3 text-center">
+          <p className="text-foreground/70 text-sm">
+            Plan a charge to have your EV charge when electricity is cheapest.
+          </p>
           <Button asChild>
             <Link to="/charging/new">
               <PlusIcon /> Plan charging
             </Link>
           </Button>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     )
   }
 
-  const charging = nextCharging.status === 'IN_PROGRESS'
   const window = formatScheduleWindow(nextCharging.startAt, nextCharging.endAt)
   const durationMinutes =
     (new Date(nextCharging.endAt).getTime() - new Date(nextCharging.startAt).getTime()) / 60_000
 
   return (
-    <Link to={`/charging/schedules/${nextCharging.scheduleId}`} state={DASHBOARD_ORIGIN} className="block h-full">
-      <Card
-        className={cn(
-          'hover:border-ring h-full gap-4 transition-colors',
-          charging && 'border-chart-2/40 bg-chart-2/5',
-        )}
-      >
-        <CardHeader>
-          <div className="flex items-start justify-between gap-2">
-            <CardTitle className="flex items-center gap-2">
-              {charging ? (
-                <span className="relative flex size-2.5">
-                  <span className="bg-chart-2 absolute inline-flex size-full animate-ping rounded-full opacity-75" />
-                  <span className="bg-chart-2 relative inline-flex size-2.5 rounded-full" />
-                </span>
-              ) : (
-                <CalendarClockIcon className="text-muted-foreground size-4" />
-              )}
-              {charging ? 'Charging now' : 'Next charging'}
-            </CardTitle>
-            <ScheduleStatusBadge status={nextCharging.status} />
-          </div>
-          <p className="text-muted-foreground flex items-center gap-1.5 text-sm">
-            <CarIcon className="size-3.5 shrink-0" />
-            {nextCharging.evName}
-          </p>
-        </CardHeader>
-        <CardContent className="space-y-4">
+    <Link to={`/charging/schedules/${nextCharging.scheduleId}`} state={DASHBOARD_ORIGIN} className="group block h-full">
+      <div className={`${CARD_SURFACE} relative flex h-full min-h-72 flex-col overflow-hidden rounded-xl p-6 transition-transform group-hover:-translate-y-0.5`}>
+        <div className="flex items-start justify-between gap-2">
+          <StatusRow label={charging ? 'Charging now' : 'Next charging'} charging={charging} />
+          <ScheduleStatusBadge status={nextCharging.status} />
+        </div>
+        <p className="text-foreground/70 relative mt-1 flex items-center gap-1.5 text-sm">
+          <CarIcon className="size-3.5 shrink-0" />
+          {nextCharging.evName}
+        </p>
+
+        <div className="flex flex-1 items-center justify-center py-4">
+          <VehicleImage charging={charging} />
+        </div>
+
+        <div className="relative space-y-4">
           <div className="space-y-1">
-            <p className="text-foreground text-lg font-semibold tabular-nums">{window.timeRange}</p>
-            <p className="text-muted-foreground text-sm">
+            <p className="text-foreground text-4xl font-semibold tabular-nums">{window.timeRange}</p>
+            <p className="text-foreground/70 text-base">
               {window.date} · {formatDurationMinutes(durationMinutes)}
             </p>
           </div>
-          <dl className="grid grid-cols-3 gap-x-4 gap-y-1 text-sm">
-            <Fact icon={<ZapIcon className="size-3.5" />} label="Energy" value={formatKwh(nextCharging.estimatedEnergyKwh)} />
-            <Fact icon={<BatteryChargingIcon className="size-3.5" />} label="Cost" value={formatNok(nextCharging.estimatedCostNok)} />
+          <dl className="border-foreground/10 grid grid-cols-3 gap-x-4 gap-y-1 border-t pt-4 text-base">
+            <Fact icon={<ZapIcon className="size-4" />} label="Energy" value={formatKwh(nextCharging.estimatedEnergyKwh)} />
+            <Fact icon={<BatteryChargingIcon className="size-4" />} label="Cost" value={formatNok(nextCharging.estimatedCostNok)} />
             <div className="space-y-0.5">
-              <dt className="text-muted-foreground text-xs">Savings</dt>
-              <dd className="text-chart-2 font-medium tabular-nums">{formatNok(nextCharging.estimatedSavingsNok)}</dd>
+              <dt className="text-foreground/60 flex items-center gap-1 text-sm">Savings</dt>
+              <dd className="text-primary font-semibold tabular-nums sm:text-lg">{formatNok(nextCharging.estimatedSavingsNok)}</dd>
             </div>
           </dl>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </Link>
+  )
+}
+
+/**
+ * The vehicle render assets have their black studio background keyed out and are trimmed to the
+ * car, so `object-contain` inside a height cap scales the whole silhouette without cropping it.
+ */
+function VehicleImage({ charging }: { charging: boolean }) {
+  return (
+    <img
+      src={charging ? evChargingImage : evIdleImage}
+      alt={charging ? 'Vehicle charging' : 'Vehicle idle'}
+      className="max-h-48 w-4/5 min-w-0 object-contain select-none"
+      draggable={false}
+    />
+  )
+}
+
+function StatusRow({ label, charging }: { label: string; charging: boolean }) {
+  return (
+    <div className="text-foreground relative flex items-center gap-2 text-sm font-medium">
+      {charging ? (
+        <span className="relative flex size-2.5">
+          <span className="bg-primary absolute inline-flex size-full animate-ping rounded-full opacity-75" />
+          <span className="bg-primary relative inline-flex size-2.5 rounded-full" />
+        </span>
+      ) : (
+        <CalendarClockIcon className="text-foreground/70 size-4" />
+      )}
+      {label}
+    </div>
   )
 }
 
 function Fact({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
   return (
     <div className="space-y-0.5">
-      <dt className="text-muted-foreground flex items-center gap-1 text-xs">
+      <dt className="text-foreground/60 flex items-center gap-1 text-sm">
         {icon} {label}
       </dt>
-      <dd className="font-medium tabular-nums">{value}</dd>
+      <dd className="text-foreground font-semibold tabular-nums sm:text-lg">{value}</dd>
     </div>
   )
 }

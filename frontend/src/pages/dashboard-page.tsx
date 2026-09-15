@@ -4,24 +4,27 @@ import { ArrowRightIcon, TrendingUpIcon } from 'lucide-react'
 import { ApiErrorAlert } from '@/components/api-error-alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
+import { useAuth } from '@/features/auth/use-auth'
 import { CostComparisonCard } from '@/features/dashboard/components/cost-comparison-card'
-import { CurrentPriceCard } from '@/features/dashboard/components/current-price-card'
 import { DashboardSkeleton } from '@/features/dashboard/components/dashboard-skeleton'
 import { NextChargingCard } from '@/features/dashboard/components/next-charging-card'
 import { RecentChargingList } from '@/features/dashboard/components/recent-charging-list'
+import { SavingsHeroCard } from '@/features/dashboard/components/savings-hero-card'
 import { SavingsTrendChart } from '@/features/dashboard/components/savings-trend-chart'
 import { SummaryCards } from '@/features/dashboard/components/summary-cards'
 import { useDashboardQuery } from '@/features/dashboard/queries'
 
 export function DashboardPage() {
+  const { user } = useAuth()
   const { data, isPending, isError, error, refetch } = useDashboardQuery()
+  const firstName = user?.name.split(' ')[0] ?? 'there'
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div>
-        <h1 className="text-2xl font-semibold">Dashboard</h1>
+        <h1 className="text-3xl font-semibold">Hi, {firstName}</h1>
         <p className="text-muted-foreground text-sm">
-          Your charging costs, savings, and what&apos;s coming up next.
+          Here&apos;s what your EV is doing and what you&apos;ve saved so far.
         </p>
       </div>
 
@@ -37,15 +40,21 @@ export function DashboardPage() {
       ) : null}
 
       {data ? (
-        <div className="space-y-6">
-          <SummaryCards summary={data.summary} />
-
-          <div className="grid gap-4 lg:grid-cols-3">
-            <div className="lg:col-span-2">
+        <div className="space-y-8">
+          <div className="grid items-stretch gap-4 lg:grid-cols-5">
+            <div className="lg:col-span-3">
               <NextChargingCard nextCharging={data.nextCharging} />
             </div>
-            <CurrentPriceCard currentPrice={data.currentPrice} />
+            <div className="lg:col-span-2">
+              <SavingsHeroCard
+                summary={data.summary}
+                trend={data.savingsTrend}
+                savingsPercent={data.costComparison.savingsPercent}
+              />
+            </div>
           </div>
+
+          <SummaryCards summary={data.summary} currentPrice={data.currentPrice} />
 
           <Card>
             <CardHeader>

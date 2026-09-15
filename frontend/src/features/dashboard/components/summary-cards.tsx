@@ -1,29 +1,28 @@
 import type { ReactNode } from 'react'
-import { BatteryChargingIcon, CoinsIcon, TrendingUpIcon, ZapIcon } from 'lucide-react'
+import { BatteryChargingIcon, CoinsIcon, GaugeIcon, TrendingDownIcon, TrendingUpIcon, ZapIcon, ZapOffIcon } from 'lucide-react'
 
 import { Card, CardContent } from '@/components/ui/card'
-import { formatKwh, formatNok, formatNokPerKwh } from '@/lib/format'
-import type { DashboardSummary } from '../types'
+import { useAuth } from '@/features/auth/use-auth'
+import { formatKwh, formatNokPerKwh, formatOrePerKwh, formatPercent } from '@/lib/format'
+import { priceAreaLabel } from '@/lib/price-area'
+import { cn } from '@/lib/utils'
+import type { DashboardCurrentPrice, DashboardSummary } from '../types'
 
 /**
- * The four headline KPIs. Total Savings is WattPilot's core value, so it gets its own emphasized
- * card (bigger number, tinted background) — matching the "Total saved" treatment on the Charging
- * History page — while the other three stay visually secondary.
+ * The secondary KPI row. Total savings gets its own hero tile ({@link SavingsHeroCard}), so this
+ * row stays uniformly-weighted supporting detail: current price, energy charged, sessions, and
+ * average cost.
  */
-export function SummaryCards({ summary }: { summary: DashboardSummary }) {
+export function SummaryCards({
+  summary,
+  currentPrice,
+}: {
+  summary: DashboardSummary
+  currentPrice: DashboardCurrentPrice | null
+}) {
   return (
     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-      <Card className="border-chart-2/40 bg-chart-2/5 sm:col-span-2 lg:col-span-1">
-        <CardContent className="space-y-1">
-          <p className="text-muted-foreground flex items-center gap-1.5 text-xs">
-            <TrendingUpIcon className="size-3.5" /> Total savings
-          </p>
-          <p className="text-chart-2 text-2xl font-semibold tabular-nums">
-            {formatNok(summary.totalSavingsNok)}
-          </p>
-          <p className="text-muted-foreground text-xs">Since your first optimized charge</p>
-        </CardContent>
-      </Card>
+      <CurrentPriceTile currentPrice={currentPrice} />
       <StatCard
         label="Energy charged"
         value={formatKwh(summary.totalEnergyKwh)}
@@ -45,13 +44,66 @@ export function SummaryCards({ summary }: { summary: DashboardSummary }) {
 
 function StatCard({ label, value, icon }: { label: string; value: string; icon: ReactNode }) {
   return (
-    <Card>
-      <CardContent className="space-y-1">
+    <Card className="gap-2 py-5">
+      <CardContent className="space-y-1.5">
         <p className="text-muted-foreground flex items-center gap-1.5 text-xs">
-          {icon} {label}
+          <span className="bg-accent text-primary flex size-6 items-center justify-center rounded-full">
+            {icon}
+          </span>
+          {label}
         </p>
         <p className="text-xl font-semibold tabular-nums">{value}</p>
       </CardContent>
     </Card>
+  )
+}
+
+function CurrentPriceTile({ currentPrice }: { currentPrice: DashboardCurrentPrice | null }) {
+  const { user } = useAuth()
+
+  return (
+    <Card className="gap-2 py-5">
+      <CardContent className="space-y-1.5">
+        <p className="text-muted-foreground flex items-center gap-1.5 text-xs">
+          <span className="bg-accent text-primary flex size-6 items-center justify-center rounded-full">
+            <GaugeIcon className="size-3.5" />
+          </span>
+          Current price
+          {user ? <span className="text-muted-foreground/70">· {priceAreaLabel(user.defaultPriceArea)}</span> : null}
+        </p>
+
+        {currentPrice ? (
+          <div className="flex items-baseline gap-2">
+            <p className="text-xl font-semibold tabular-nums">{formatOrePerKwh(currentPrice.priceNokPerKwh)}</p>
+            {currentPrice.differencePercent != null ? (
+              <PriceDelta value={currentPrice.differencePercent} />
+            ) : null}
+          </div>
+        ) : (
+          <div className="text-muted-foreground flex items-center gap-1.5 py-0.5 text-sm">
+            <ZapOffIcon className="size-3.5 shrink-0" />
+            Unavailable
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function PriceDelta({ value }: { value: number }) {
+  const cheaper = value < 0
+  const pricier = value > 0
+  return (
+    <span
+      className={cn(
+        'flex items-center gap-0.5 text-xs font-medium',
+        cheaper && 'text-chart-2',
+        pricier && 'text-destructive',
+      )}
+    >
+      {cheaper ? <TrendingDownIcon className="size-3" /> : null}
+      {pricier ? <TrendingUpIcon className="size-3" /> : null}
+      {formatPercent(Math.abs(value))}
+    </span>
   )
 }
