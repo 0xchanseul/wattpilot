@@ -24,7 +24,7 @@ WattPilot V1 will use a **modular monolith** architecture with a separate React 
 | Build | Gradle, npm |
 | Container | Docker, Docker Compose |
 | Source Control / CI-CD | GitHub, GitHub Actions |
-| Cloud | AWS |
+| Cloud | Azure (VM + PostgreSQL Flexible Server) |
 
 # Application Architecture
 
@@ -253,27 +253,25 @@ History treats **`realizedSavingsNok` as the saving** — the per-item value and
 
 ```text
 User
- ↓
-CloudFront + S3
-React Frontend
- ↓ HTTPS / REST
-ECS Fargate
-Spring Boot Backend
- ↓
-RDS PostgreSQL
+ ↓ HTTPS (wattpilot.dev)
+nginx (TLS termination)
+ ├─ static files ─ React Frontend
+ └─ /api/ ─ Spring Boot Backend (Docker, prod profile)
+              ↓
+       PostgreSQL Flexible Server
 ```
 
-Recommended AWS services:
+Production runs on a single Azure VM (see `docs/deployment.md`, "Production Architecture (Azure)"
+for the full procedure):
 
-- **S3 + CloudFront** — Frontend hosting
-- **ECS Fargate** — Spring Boot container hosting
-- **ECR** — Docker image registry
-- **RDS PostgreSQL** — Production database
-- **CloudWatch** — Application logs and monitoring
-- **Route 53** — DNS
-- **AWS Certificate Manager** — HTTPS certificates
+- **Azure VM** — runs nginx and the backend Docker container
+- **nginx** — TLS termination (Let's Encrypt/certbot), static frontend hosting, `/api/` reverse proxy
+- **GHCR** — Docker image registry
+- **Azure Database for PostgreSQL Flexible Server** — production database
+- **Docker container logs / nginx logs** — application logs and monitoring
 
-GitHub Actions will handle automated test, build, Docker image creation, and deployment.
+GitHub Actions is expected to handle automated test, build, Docker image creation, and deployment
+to the VM once CI/CD is set up; deployment is currently manual.
 
 # V1 Non-Goals
 

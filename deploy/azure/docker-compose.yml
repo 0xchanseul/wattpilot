@@ -1,5 +1,5 @@
-# Runs on the Azure test VM. The database is Azure Database for PostgreSQL Flexible Server,
-# not a container here. See docs/deployment.md, "Temporary Test Environment (Azure)".
+# Runs on the production Azure VM. The database is Azure Database for PostgreSQL Flexible Server,
+# not a container here. See docs/deployment.md, "Production Architecture (Azure)".
 #
 #   docker compose pull && docker compose up -d
 #
@@ -10,11 +10,14 @@ services:
     env_file:
       - .env
     environment:
-      SPRING_PROFILES_ACTIVE: cloud
+      SPRING_PROFILES_ACTIVE: prod
       # B1s has 1 GiB RAM and this VM only runs the app; leave headroom for the OS.
       JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=70.0
     ports:
-      - "8080:8080"
+      # Bound to localhost only: nginx is the public entry point and reverse-proxies to this
+      # port (see deploy/azure/nginx/wattpilot.conf). The backend itself is never exposed
+      # directly to the internet.
+      - "127.0.0.1:8080:8080"
     restart: unless-stopped
     mem_limit: 768m
     logging:

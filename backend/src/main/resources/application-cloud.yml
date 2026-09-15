@@ -1,8 +1,8 @@
-# Temporary remote test environment (see docs/deployment.md, "Temporary Test Environment (Azure)").
+# Lightweight cloud test profile (see docs/deployment.md, "Production Architecture (Azure)").
 #
-# Purpose: run the V1 schedulers against real data around the clock before the AWS production
-# environment exists. This profile is NOT the production profile; `prod` remains reserved for the
-# AWS deployment described in docs/deployment.md.
+# Not currently in use: the Azure VM this profile originally targeted has been promoted to
+# Production and now runs the `prod` profile instead, once a domain and TLS certificate existed.
+# Kept in case a separate, throwaway cloud environment is needed again later.
 #
 # Every value comes from an environment variable injected on the host (deploy/azure/.env).
 

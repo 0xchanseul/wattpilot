@@ -1,6 +1,6 @@
 # Deployment Strategy
 
-WattPilot V1 will be developed and tested locally first. AWS resources will be provisioned only after the core V1 features are sufficiently complete in order to minimize unnecessary cloud costs during development.
+WattPilot V1 will be developed and tested locally first. Cloud resources will be provisioned only after the core V1 features are sufficiently complete in order to minimize unnecessary cloud costs during development.
 
 ```
 Development
@@ -10,7 +10,7 @@ React + Spring Boot + PostgreSQL
           ↓
       V1 Completion
           ↓
-      AWS Deployment
+     Azure Deployment
           ↓
    Production Environment
 ```
@@ -18,9 +18,9 @@ React + Spring Boot + PostgreSQL
 The initial project will use only two long-lived environments:
 
 - **Local** — development and testing
-- **Production** — portfolio deployment and public access
+- **Production** — portfolio deployment and public access, hosted on Azure
 
-A short-lived **Azure test environment** is also used before Production exists, to run the V1 schedulers against real data around the clock. It is described in "Temporary Test Environment (Azure)" below and is torn down once Production is ready.
+Production started out as a short-lived **Azure test environment** used to run the V1 schedulers against real data before a domain and HTTPS existed. Once a domain (`wattpilot.dev` / `www.wattpilot.dev`) and a Let's Encrypt certificate were obtained, the same VM was promoted to Production in place — see "Production Architecture" below. There is no separate AWS environment.
 
 A separate staging environment may be added later if needed.
 
@@ -46,62 +46,90 @@ Main components:
 
 Database schema changes are managed through **Flyway migration scripts** rather than manual schema changes in tools such as DBeaver.
 
-# Temporary Test Environment (Azure)
+# Production Architecture (Azure)
 
 ## Purpose and scope
 
-Before the AWS production environment exists, the V1 schedulers need to run continuously against real
-inputs to be validated:
+This is WattPilot's one production environment. It started as a throwaway environment to run the V1
+schedulers continuously against real inputs before a domain existed:
 
 - **Price collection** — fetches Norwegian next-day prices from the public Hva koster strømmen API on
   the real `Europe/Oslo` schedule (`0 15 13-22 * * *`).
 - **Mock Charging execution** — drives confirmed reservations through Mock Charging every minute.
 
-Running these on a developer laptop is not practical, and standing up the full AWS stack early is not
-cost-effective. A single small Azure VM plus a managed PostgreSQL server covers it while staying inside
-Azure's 12-month free grants.
+Running these on a developer laptop is not practical, and a multi-service cloud stack is not
+cost-effective for a portfolio project. A single small Azure VM plus a managed PostgreSQL server covers
+both the scheduler workload and, now that a domain and certificate exist, public production traffic —
+while staying inside Azure's 12-month free grants.
 
-This environment is **temporary and non-authoritative**:
+Current state:
 
-- It is not the production target. The Production architecture (ECS Fargate + RDS) below is unchanged.
-- It uses the `cloud` Spring profile, not `prod`.
-- It has no domain, no HTTPS, no frontend hosting, and no CI. Those belong to Production.
-- It is deleted once Production is ready, or before the free grants expire — whichever comes first.
+- It uses the `prod` Spring profile (see `application-prod.yml`): Swagger/OpenAPI disabled, only
+  `/actuator/health` exposed, datasource pointed at the managed PostgreSQL server over TLS.
+- It has a real domain (`wattpilot.dev`, `www.wattpilot.dev`) with a Let's Encrypt/certbot certificate,
+  fronted by nginx.
+- nginx also serves the built React frontend as static files and reverse-proxies `/api/` to the backend
+  container — see "Frontend Deployment" and "Backend Deployment" below.
+- There is no separate AWS environment; this VM is the deployment target referenced throughout this
+  document as "Production".
 
 ## Architecture
 
 ```
-Local machine                         Azure (resource group: wattpilot-test)
-─────────────                          ─────────────────────────────────────
-React (Vite dev server)  ──HTTP──▶     VM  (Standard_B1s, Ubuntu 24.04)
-                                         └─ Docker: wattpilot-backend  (profile: cloud)
-docker build + push                              │ JDBC + TLS
-        │                                        ▼
-        ▼                              PostgreSQL Flexible Server (Standard_B1ms, 32 GiB)
-GHCR (ghcr.io/<owner>/wattpilot-backend)
+                              User
+                               │
+                        HTTPS (wattpilot.dev)
+                               │
+                               ▼
+                 Azure VM (resource group: wattpilot-test)
+                 ┌─────────────────────────────────────────┐
+                 │  nginx (TLS termination, Let's Encrypt)  │
+                 │    /            → static React build     │
+                 │    /api/        → wattpilot-backend:8080 │
+                 │    /actuator/*  → wattpilot-backend:8080 │
+                 └───────────────────┬───────────────────────┘
+                                     │ Docker: wattpilot-backend (profile: prod)
+                                     │ JDBC + TLS
+                                     ▼
+                    PostgreSQL Flexible Server (Standard_B1ms, 32 GiB)
+
+Local machine
+─────────────
+docker build + push  ──▶  GHCR (ghcr.io/<owner>/wattpilot-backend)
+npm run build         ──▶  dist/ copied to the VM for nginx to serve
 ```
 
 | Purpose | Choice |
 | --- | --- |
 | Backend host | Azure VM `Standard_B1s` (1 vCPU / 1 GiB), 12-month free |
+| Reverse proxy / TLS | nginx + Let's Encrypt (certbot) on the VM |
+| Domain | `wattpilot.dev`, `www.wattpilot.dev` |
 | Database | Azure Database for PostgreSQL Flexible Server `Standard_B1ms` + 32 GiB, 12-month free |
 | Image registry | GitHub Container Registry (GHCR), free |
 | DB network access | Public access, firewall restricted to the VM's public IP |
-| Frontend | Run locally with `npm run dev`, pointed at the VM |
+| Frontend | Static build served by nginx from the same VM, same origin as the API |
 
 Confirm the currently free-eligible VM size and the PostgreSQL free offer at provisioning time; Azure
-adjusts both periodically.
+adjusts both periodically. Cost guardrails and teardown notes for the underlying VM/DB grants are still
+in "Cost guardrails and teardown" below — teardown no longer applies automatically once this environment
+is Production, but the free-grant expiry still needs a plan (upgrade to a paid tier, or migrate).
 
 ## Files
 
 | File | Role |
 | --- | --- |
 | `backend/Dockerfile` | Multi-stage build of the backend image (built locally, not on the VM) |
-| `backend/src/main/resources/application-cloud.yml` | `cloud` profile: managed DB with TLS, schedulers on, real price API |
-| `deploy/azure/docker-compose.yml` | What runs on the VM (backend container only) |
+| `backend/src/main/resources/application-prod.yml` | `prod` profile: managed DB with TLS, Swagger disabled, only `/actuator/health` exposed |
+| `backend/src/main/resources/application-cloud.yml` | `cloud` profile: currently unused, kept for a possible future throwaway environment |
+| `deploy/azure/docker-compose.yml` | What runs on the VM (backend container, bound to `127.0.0.1:8080`) |
 | `deploy/azure/.env.example` | Template for `deploy/azure/.env`, created on the VM and never committed |
+| `deploy/azure/nginx/wattpilot.conf` | nginx site config: TLS termination, static frontend, `/api/` reverse proxy |
 
 ## Procedure
+
+The steps below are kept as a record of the initial bootstrap. Steps 1–6 provisioned the VM and
+database under the `cloud` profile before a domain existed; step 7 covers the later cutover to
+`prod` with a domain, TLS, nginx, and the frontend.
 
 ### 1. Build and push the image (local machine)
 
@@ -187,39 +215,89 @@ docker compose logs -f
 - `curl http://$VM_IP:8080/v3/api-docs` returns the OpenAPI JSON.
 - After 13:15 Oslo, logs show a price-collection run; every minute, a Mock Charging execution tick.
 
-### 7. Interact with the API
+### 7. Production cutover: domain, TLS, nginx, frontend
 
-The backend runs over plain HTTP on the VM's IP. The `Authorization: Bearer` access token works
-directly, but the refresh-token cookie is `SameSite=Lax; Secure`, so a browser will neither store nor
-send it to a non-HTTPS, cross-site host. Consequences:
+This is the step that turned the bootstrap VM above into Production. It assumes DNS for
+`wattpilot.dev` and `www.wattpilot.dev` already points at the VM's public IP, and that a Let's
+Encrypt certificate has already been issued via certbot.
 
-- **Swagger UI / API clients:** tunnel to the VM so the origin is `localhost`, then the full auth
-  flow (including refresh) works:
+1. **Open 80/443, close 8080 externally.** nginx becomes the only public entry point.
 
-  ```bash
-  ssh -L 8080:localhost:8080 azureuser@$VM_IP
-  # open http://localhost:8080/swagger-ui.html
-  ```
+   ```bash
+   az vm open-port -g $RG -n wattpilot-vm --port 80
+   az vm open-port -g $RG -n wattpilot-vm --port 443
+   az network nsg rule delete -g $RG --nsg-name <vm-nsg-name> -n open-port-8080
+   ```
 
-- **Local React frontend:** set `frontend/.env` to `VITE_API_BASE_URL=http://<VM_IP>:8080/api/v1` and
-  run `npm run dev`. Login and Bearer-authenticated calls work; silent refresh does not, so the
-  session ends when the 30-minute access token expires and you log in again. Full HTTPS + domain is
-  production scope.
+2. **Switch the backend to the `prod` profile and bind it to localhost.** `deploy/azure/docker-compose.yml`
+   already sets `SPRING_PROFILES_ACTIVE: prod` and `ports: ["127.0.0.1:8080:8080"]`; on the VM:
+
+   ```bash
+   cd ~/wattpilot
+   # update deploy/azure/.env: CORS_ALLOWED_ORIGINS=https://wattpilot.dev,https://www.wattpilot.dev
+   docker compose pull && docker compose up -d
+   ```
+
+3. **Install nginx and install the site config** (`deploy/azure/nginx/wattpilot.conf`):
+
+   ```bash
+   sudo apt update && sudo apt install -y nginx
+   scp deploy/azure/nginx/wattpilot.conf azureuser@$VM_IP:~/wattpilot.conf
+   ssh azureuser@$VM_IP
+   sudo cp ~/wattpilot.conf /etc/nginx/sites-available/wattpilot
+   sudo ln -s /etc/nginx/sites-available/wattpilot /etc/nginx/sites-enabled/wattpilot
+   sudo rm -f /etc/nginx/sites-enabled/default
+   sudo certbot certificates   # confirm the live/ directory name matches the conf file's paths
+   sudo nginx -t && sudo systemctl reload nginx
+   ```
+
+4. **Build and deploy the frontend** (`frontend/.env.production` already points at
+   `https://www.wattpilot.dev/api/v1`):
+
+   ```bash
+   # local
+   cd frontend
+   npm run build
+   rsync -avz dist/ azureuser@$VM_IP:/tmp/wattpilot-dist/
+
+   # VM
+   ssh azureuser@$VM_IP
+   sudo mkdir -p /var/www/wattpilot
+   sudo rsync -a --delete /tmp/wattpilot-dist/ /var/www/wattpilot/dist/
+   ```
+
+5. **Verify:**
+
+   - `curl -I https://www.wattpilot.dev` returns `200` and serves the SPA shell.
+   - `curl https://www.wattpilot.dev/actuator/health` returns `{"status":"UP"}`.
+   - `curl -I https://www.wattpilot.dev/v3/api-docs` returns `404` (Swagger is disabled in `prod`).
+   - Sign up / log in through the real domain; the refresh-token cookie now works normally
+     (`Secure` + real HTTPS + same-origin, no more tunnel needed).
+   - Certbot's systemd timer (`systemctl list-timers | grep certbot`) handles renewal; nginx just
+     needs a reload after a renewal (`certbot renew` does this automatically via its nginx hook).
 
 To exercise the Mock Charging execution scheduler, create a confirmed charging schedule
-(`POST /charging-schedules`) through the tunnelled Swagger UI. Price collection needs no interaction.
-`backend/scripts/seed_electricity_prices.py` can seed prices directly against the managed database if a
-run has not happened yet.
+(`POST /charging-schedules`) through the deployed frontend or Swagger UI (tunnel to `localhost:8080`
+if the raw API needs poking, since `/v3/api-docs`/`/swagger-ui` are disabled in `prod`). Price
+collection needs no interaction. `backend/scripts/seed_electricity_prices.py` can seed prices
+directly against the managed database if a run has not happened yet.
 
 ## Redeploying
 
 ```bash
-# local
+# Backend: local
 docker build -t ghcr.io/<owner>/wattpilot-backend:latest ./backend
 docker push ghcr.io/<owner>/wattpilot-backend:latest
 
-# VM
+# Backend: VM
 cd ~/wattpilot && docker compose pull && docker compose up -d
+
+# Frontend: local
+cd frontend && npm run build
+rsync -avz dist/ azureuser@$VM_IP:/tmp/wattpilot-dist/
+
+# Frontend: VM
+ssh azureuser@$VM_IP 'sudo rsync -a --delete /tmp/wattpilot-dist/ /var/www/wattpilot/dist/'
 ```
 
 ## Cost guardrails and teardown
@@ -236,42 +314,10 @@ cd ~/wattpilot && docker compose pull && docker compose up -d
   az group delete -n wattpilot-test --yes --no-wait
   ```
 
-# Production Architecture
-
-The production environment will be hosted on AWS.
-
-```
-                  User
-                   │
-             HTTPS Request
-                   │
-       ┌───────────┴───────────┐
-       │                       │
-   CloudFront                  ALB
-       │                       │
-       ▼                       ▼
-      S3                  ECS Fargate
-React Frontend            Spring Boot
-                               │
-                               ▼
-                        RDS PostgreSQL
-```
-
-| Purpose | AWS Service |
-| --- | --- |
-| Frontend Hosting | Amazon S3 |
-| CDN | Amazon CloudFront |
-| Backend Hosting | Amazon ECS Fargate |
-| Container Registry | Amazon ECR |
-| Database | Amazon RDS for PostgreSQL |
-| Backend Entry Point | Application Load Balancer |
-| Logging | Amazon CloudWatch |
-| DNS | Amazon Route 53 |
-| HTTPS Certificate | AWS Certificate Manager |
-
 # Frontend Deployment
 
-The React frontend will be built into static files and deployed independently from the backend.
+The React frontend is built into static files and served by nginx from the same Azure VM as the
+backend — see "Production Architecture (Azure)" above for the full picture.
 
 ```
 React Source
@@ -280,26 +326,29 @@ npm run build
     ↓
 dist/
     ↓
-Amazon S3
+rsync to the VM
     ↓
-CloudFront
+nginx (static files)
     ↓
 User
 ```
 
-Example domain structure:
+Domain structure:
 
 ```
-wattpilot.example
-→ Frontend
+www.wattpilot.dev
+→ Frontend (nginx static files) + Backend API under /api/ (nginx reverse proxy)
 
-api.wattpilot.example
-→ Backend API
+wattpilot.dev
+→ 301 redirect to www.wattpilot.dev
 ```
+
+The frontend and backend intentionally share one origin (rather than a separate `api.` subdomain)
+so the browser never needs CORS or a cross-site cookie for the refresh token.
 
 # Backend Deployment
 
-The Spring Boot backend will be packaged and deployed as a Docker image.
+The Spring Boot backend is packaged as a Docker image and run with Docker Compose on the VM.
 
 ```
 Spring Boot
@@ -308,28 +357,29 @@ Gradle Build
     ↓
 Docker Image
     ↓
-Amazon ECR
+GitHub Container Registry (GHCR)
     ↓
-ECS Fargate
+Azure VM (docker compose pull && up, `prod` profile)
 ```
 
-The backend will use container-based deployment rather than manually installing and running a JAR on a server.
+The backend uses container-based deployment rather than manually installing and running a JAR on
+the server. It listens on `127.0.0.1:8080` only; nginx is the sole public entry point.
 
 # Database Deployment
 
-The production database will use **Amazon RDS for PostgreSQL**.
+The production database is **Azure Database for PostgreSQL Flexible Server**.
 
 ```
-ECS Fargate
+Azure VM (backend container)
      │
-     │ JDBC
+     │ JDBC + TLS
      ▼
-RDS PostgreSQL
+PostgreSQL Flexible Server
 ```
 
-The database will not be publicly exposed and should only be accessible from the backend infrastructure.
+The database is not publicly exposed — its firewall allows only the VM's public IP.
 
-Production schema changes will also be managed through Flyway.
+Production schema changes are managed through Flyway.
 
 ```
 Backend Deployment
@@ -338,16 +388,18 @@ Spring Boot Startup
        ↓
 Flyway Migration
        ↓
-RDS Schema Update
+PostgreSQL Schema Update
 ```
 
 This keeps local and production database schemas consistent.
 
 # CI/CD
 
-CI/CD will be implemented using **GitHub Actions**. The default deployment trigger will be a merge into the `main` branch.
+CI/CD is not yet implemented; deployments are currently manual (see "Production Architecture
+(Azure)" → "Procedure" and "Redeploying" above). GitHub Actions is expected to automate this later,
+targeting the same VM rather than AWS services:
 
-## Backend
+## Backend (planned)
 
 ```
 Merge to main
@@ -360,12 +412,12 @@ Gradle Build
       ↓
 Docker Build
       ↓
-Push to ECR
+Push to GHCR
       ↓
-Deploy to ECS
+SSH to VM: docker compose pull && up
 ```
 
-## Frontend
+## Frontend (planned)
 
 ```
 Merge to main
@@ -376,21 +428,17 @@ npm ci
       ↓
 Frontend Build
       ↓
-Upload to S3
-      ↓
-CloudFront Cache Invalidation
+rsync dist/ to the VM
 ```
-
-The initial AWS deployment should be completed manually once before automating the process with CI/CD. This makes it easier to separate AWS configuration issues from pipeline configuration issues.
 
 # Configuration & Secrets
 
-Environment-specific configuration will use Spring Profiles.
+Environment-specific configuration uses Spring Profiles.
 
 ```
 local
-cloud   (temporary Azure test environment; see below)
-prod
+cloud   (currently unused — see application-cloud.yml)
+prod    (the Azure VM described above)
 ```
 
 Example configuration files:
@@ -406,7 +454,7 @@ Sensitive values must not be stored in the Git repository, including:
 - Database passwords
 - JWT secrets
 - External API tokens
-- AWS credentials
+- Cloud provider credentials
 
 Local development uses a single git-ignored `.env` file in the repository root, shared by both the local PostgreSQL container and the backend:
 
@@ -421,41 +469,40 @@ POSTGRES_PORT
 - PostgreSQL container: `docker compose --env-file .env -f docker/postgres/docker-compose.yml up -d`
 - Backend: `application-local.yml` imports the file via `spring.config.import: optional:file:../../.env[.properties]` and maps the `POSTGRES_*` values onto the datasource. The import is optional, so plain environment variables also work.
 
-Production secrets will be provided through AWS Secrets Manager or ECS-managed environment secrets.
+Production secrets live in `deploy/azure/.env` on the VM (git-ignored, never committed) — see
+"Production Architecture (Azure)" → "Files" above.
 
 # Monitoring & Logging
 
-V1 will use a lightweight monitoring setup.
+V1 uses a lightweight monitoring setup.
 
-- **Spring Boot Actuator** for application health checks
-- **Amazon CloudWatch** for application logs
+- **Spring Boot Actuator** (`/actuator/health` only) for application health checks
+- **Docker container logs** (`docker compose logs`) and nginx access/error logs on the VM
 
 ```
 Spring Boot Container
         ↓
-Application Logs
-        ↓
-CloudWatch Logs
+   docker compose logs
 ```
 
-The `/actuator/health` endpoint may be used for health checks. Prometheus and Grafana are not required for V1.
+Prometheus, Grafana, and a managed log aggregator are not required for V1.
 
-# AWS Cost Strategy
+# Cost Strategy
 
 Because WattPilot is a personal portfolio project, cloud cost should be kept as low as reasonably possible.
 
-AWS infrastructure will not be kept running during the main development phase. Production resources will be provisioned after V1 is ready for deployment.
+The production environment avoids unnecessary high-cost infrastructure such as:
 
-The initial production environment should avoid unnecessary high-cost infrastructure such as:
-
-- NAT Gateway
-- Kubernetes / EKS
-- Multi-AZ high-availability architecture
+- Load balancers or API gateways in front of the single VM
+- Kubernetes / container orchestration platforms
+- Multi-AZ / multi-region high-availability architecture
 - Separate staging infrastructure
 - Redis clusters
 - Kafka or other message brokers
 
-If long-term hosting costs become too high for a portfolio project, the production hosting model may be simplified while keeping the deployment architecture and implementation experience documented.
+See "Cost guardrails and teardown" above for the VM/database free-grant tracking. If long-term
+hosting costs become too high for a portfolio project, the hosting model may be simplified further
+while keeping the deployment architecture and implementation experience documented.
 
 # Deployment Implementation Order
 
@@ -464,22 +511,21 @@ If long-term hosting costs become too high for a portfolio project, the producti
 3. Complete the main V1 backend and frontend features
 4. Create the backend Docker image
 5. Verify the backend locally with Docker
-6. Provision the AWS production infrastructure
-7. Create and connect RDS PostgreSQL
-8. Create an ECR repository
-9. Perform the first backend deployment manually
-10. Verify ECS Fargate deployment
-11. Deploy the frontend to S3
-12. Configure CloudFront
-13. Verify frontend-to-backend communication
-14. Configure domain and HTTPS
-15. Configure GitHub Actions CI
-16. Configure GitHub Actions CD
-17. Configure CloudWatch logging and health checks
+6. Provision the Azure VM and managed PostgreSQL (see "Production Architecture (Azure)" → "Procedure")
+7. Perform the first backend deployment manually (`cloud` profile, no domain yet)
+8. Purchase a domain and obtain a TLS certificate (Let's Encrypt/certbot)
+9. Switch the backend to the `prod` profile and bind it to localhost
+10. Install and configure nginx as the reverse proxy and TLS terminator
+11. Build and deploy the frontend to the VM
+12. Verify frontend-to-backend communication over HTTPS
+13. Configure GitHub Actions CI
+14. Configure GitHub Actions CD (deploy to the VM)
+15. Set up a Cost Management budget alert and a free-grant expiry reminder
 
 # V1 Deployment Goal
 
-The final deployment goal for WattPilot V1 is an automated production deployment pipeline.
+The final deployment goal for WattPilot V1 is an automated production deployment pipeline targeting
+the Azure VM described above.
 
 ```
 GitHub
@@ -488,12 +534,12 @@ GitHub
    ▼
 GitHub Actions
    │
-   ├──────── Frontend ────────→ S3 → CloudFront
+   ├──────── Frontend ────────→ Build → rsync dist/ to the Azure VM (nginx)
    │
-   └──────── Backend ─────────→ ECR → ECS Fargate
-                                           │
-                                           ▼
-                                     RDS PostgreSQL
+   └──────── Backend ─────────→ Build → GHCR → SSH to VM: docker compose pull && up
+                                                              │
+                                                              ▼
+                                                PostgreSQL Flexible Server
 ```
 
 After a successful merge into the `main` branch, tests, builds, and production deployment should run automatically through GitHub Actions.

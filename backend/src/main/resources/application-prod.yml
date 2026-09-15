@@ -1,7 +1,7 @@
 spring:
   datasource:
-    # RDS for PostgreSQL. Same POSTGRES_* variable convention as application-cloud.yml, injected
-    # as container environment variables (e.g. via the ECS task definition / Secrets Manager).
+    # Azure Database for PostgreSQL Flexible Server. Same POSTGRES_* variable convention as
+    # application-cloud.yml, injected as container environment variables via deploy/azure/.env.
     url: jdbc:postgresql://${POSTGRES_HOST}:${POSTGRES_PORT:5432}/${POSTGRES_DB}?sslmode=require
     username: ${POSTGRES_USER}
     password: ${POSTGRES_PASSWORD}
@@ -17,8 +17,8 @@ spring:
     enabled: true
 
 # Swagger UI and the raw OpenAPI JSON are public (see SecurityConfig), so they stay off in the
-# real production environment. They remain enabled in local/cloud for development and for the
-# temporary Azure test environment's SSH-tunnel access (see docs/deployment.md).
+# real production environment. They remain enabled in local/cloud for development
+# (see docs/deployment.md).
 springdoc:
   api-docs:
     enabled: false
