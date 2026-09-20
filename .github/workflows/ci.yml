@@ -33,8 +33,12 @@ jobs:
         run: chmod +x gradlew
 
       # Integration tests start PostgreSQL through Testcontainers, which uses the runner's Docker.
+      # JWT_SECRET is normally read from the local .env file, which does not exist on the runner.
+      # This is a throwaway test-only value, not a real secret.
       - name: Build and test
         run: ./gradlew build --no-daemon
+        env:
+          JWT_SECRET: dGVzdC1vbmx5LXNlY3JldC1kby1ub3QtdXNlLWluLXByb2Q=
 
       - name: Upload test reports
         if: failure()
