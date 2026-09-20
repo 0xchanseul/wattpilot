@@ -97,8 +97,21 @@ export function ChargingCarIllustration({ charging }: { charging: boolean }) {
       <g transform="translate(300 100)">
         {charging ? (
           <>
-            <circle r="15" fill="none" stroke="#35E08D" strokeWidth="1.5" style={{ animation: 'aurora-pulse-ring 1.8s ease-out infinite' }} />
-            <circle r="15" fill="none" stroke="#35E08D" strokeWidth="1.5" style={{ animation: 'aurora-pulse-ring 1.8s ease-out infinite 0.6s' }} />
+            {[0, 0.6].map((delay) => (
+              <circle
+                key={delay}
+                r="10"
+                fill="#35E08D"
+                fillOpacity="0.35"
+                stroke="#35E08D"
+                strokeWidth="1.5"
+                style={{
+                  transformBox: 'fill-box',
+                  transformOrigin: 'center',
+                  animation: `aurora-pulse-ring 1.8s ease-out infinite ${delay}s`,
+                }}
+              />
+            ))}
           </>
         ) : null}
         <circle r="8" fill="#0C2B36" stroke={`url(#${gradientId})`} strokeWidth="2" />
