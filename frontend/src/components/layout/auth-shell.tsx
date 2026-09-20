@@ -1,11 +1,11 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router'
 
-import { ChargingCarIllustration } from '@/features/dashboard/components/charging-car-illustration'
+import evChargingImage from '@/assets/ev-charging.png'
 
 /**
- * Shared chrome for the Login and Sign-up pages: a fjord-midnight brand panel (reusing the same
- * charging illustration as the dashboard hero) next to the auth form, so the app's very first
+ * Shared chrome for the Login and Sign-up pages: a fjord-midnight brand panel (showing the same
+ * charging vehicle render as the dashboard hero) next to the auth form, so the app's very first
  * screen already carries the aurora identity instead of a plain centered card.
  */
 export function AuthShell({ tagline, children }: { tagline: string; children: ReactNode }) {
@@ -17,10 +17,13 @@ export function AuthShell({ tagline, children }: { tagline: string; children: Re
           <span className="font-display text-xl font-semibold">WattPilot</span>
         </Link>
 
-        <div className="relative -mx-6">
-          <div className="aspect-[16/9]">
-            <ChargingCarIllustration charging />
-          </div>
+        <div className="flex justify-center">
+          <img
+            src={evChargingImage}
+            alt="Vehicle charging"
+            className="w-full max-w-lg object-contain select-none"
+            draggable={false}
+          />
         </div>
 
         <div className="max-w-sm space-y-2">
