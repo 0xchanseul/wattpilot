@@ -91,12 +91,36 @@ export function NextChargingCard({ nextCharging }: { nextCharging: DashboardNext
  */
 function VehicleImage({ charging }: { charging: boolean }) {
   return (
-    <img
-      src={charging ? evChargingImage : evIdleImage}
-      alt={charging ? 'Vehicle charging' : 'Vehicle idle'}
-      className="max-h-48 w-4/5 min-w-0 object-contain select-none"
-      draggable={false}
-    />
+    <div className="relative w-fit max-w-[80%] min-w-0">
+      <img
+        src={charging ? evChargingImage : evIdleImage}
+        alt={charging ? 'Vehicle charging' : 'Vehicle idle'}
+        className="block max-h-48 w-auto max-w-full select-none"
+        draggable={false}
+      />
+      {charging ? <BoltPulse /> : null}
+    </div>
+  )
+}
+
+/**
+ * Ripples radiating from the bolt baked into the charging render. The wrapper hugs the rendered
+ * image, so the percentage offsets below track the bolt at any size.
+ */
+function BoltPulse() {
+  return (
+    <span
+      aria-hidden
+      className="pointer-events-none absolute top-[54%] left-[67.5%] aspect-square w-[14%] -translate-x-1/2 -translate-y-1/2 motion-reduce:hidden"
+    >
+      {[0, 0.6].map((delay) => (
+        <span
+          key={delay}
+          className="absolute inset-0 rounded-full border-2 border-[#7ffff0] bg-[#7ffff0]/30"
+          style={{ animation: `aurora-pulse-ring 1.8s ease-out infinite ${delay}s` }}
+        />
+      ))}
+    </span>
   )
 }
 
