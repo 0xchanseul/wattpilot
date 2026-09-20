@@ -196,7 +196,7 @@ Table charging_plan_slots {
 
   slot_start_at timestamptz [not null, note: 'Real overlap with the charging window; first/last slot may be partial']
   slot_end_at timestamptz [not null]
-  price_per_kwh decimal(12,6) [not null, note: 'Snapshot of the hour price at calculation time (electricity_prices rows are upserted in place)']
+  price_per_kwh decimal(12,6) [not null, note: 'Snapshot of the hour price at calculation time (electricity_prices rows are upserted in place); may be negative']
   planned_energy_kwh decimal(8,2) [not null, note: 'Grid-side energy drawn in this slot']
   expected_cost_nok decimal(12,4) [not null, note: 'planned_energy_kwh * price_per_kwh']
   sequence_no int [not null]
@@ -208,7 +208,6 @@ Table charging_plan_slots {
 
   checks {
     `slot_end_at > slot_start_at` [name: 'charging_plan_slot_time_range_valid']
-    `price_per_kwh >= 0` [name: 'charging_plan_slot_price_non_negative']
     `planned_energy_kwh > 0` [name: 'charging_plan_slot_energy_positive']
     `sequence_no > 0` [name: 'charging_plan_slot_sequence_positive']
   }

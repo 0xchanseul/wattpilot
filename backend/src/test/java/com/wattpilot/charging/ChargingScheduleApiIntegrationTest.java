@@ -133,6 +133,28 @@ class ChargingScheduleApiIntegrationTest {
     }
 
     @Test
+    void confirmingAWindowWithNegativePricesStoresTheNegativePlanSlotPrices() throws Exception {
+        String token = signUpAndToken();
+        long evId = createEv(token);
+        OffsetDateTime windowStart = seedHourlyPrices(PriceArea.NO1,
+                "0.90", "0.90", "-0.0024", "-0.0024", "0.90", "0.90", "0.90");
+        OffsetDateTime deadline = windowStart.plusHours(7);
+
+        String preview = preview(token, evId, deadline);
+        String selectedStartAt = JsonPath.read(preview, "$.candidates[0].recommendedStartAt");
+        String selectedEndAt = JsonPath.read(preview, "$.candidates[0].recommendedEndAt");
+
+        String body = mockMvc.perform(scheduleRequest(token, evId, deadline, selectedStartAt, selectedEndAt))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+
+        long planId = ((Number) JsonPath.read(body, "$.planId")).longValue();
+        assertThat(chargingPlanSlotRepository.findByChargingPlanIdOrderBySequenceNoAsc(planId))
+                .isNotEmpty()
+                .allSatisfy(slot -> assertThat(slot.getPricePerKwh()).isNegative());
+    }
+
+    @Test
     void aWindowThatIsNotACurrentCandidateIsRejectedWithConflict() throws Exception {
         String token = signUpAndToken();
         long evId = createEv(token);
