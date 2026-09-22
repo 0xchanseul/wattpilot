@@ -1,0 +1,113 @@
+name: Deploy
+
+# Manual only: click "Run workflow" in the Actions tab. Automatic deploy-on-merge
+# is deferred until the flow has proven itself (see TODO.md, section 2.2).
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.tag.outputs.value }}
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: tag
+        run: echo "value=${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x gradlew
+
+      # Re-verify the exact commit being deployed, same as ci.yml, rather than
+      # trusting that CI already ran for whatever ref this was dispatched on.
+      - name: Build and test
+        run: ./gradlew build --no-daemon
+        env:
+          JWT_SECRET: dGVzdC1vbmx5LXNlY3JldC1kby1ub3QtdXNlLWluLXByb2Q=
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Build and push image
+        run: |
+          image="ghcr.io/${{ github.repository_owner }}/wattpilot-backend"
+          docker build -t "$image:${{ steps.tag.outputs.value }}" -t "$image:latest" .
+          docker push "$image:${{ steps.tag.outputs.value }}"
+          docker push "$image:latest"
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+
+  deploy:
+    needs: [backend, frontend]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend-dist
+
+      - name: Set up deploy key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VM_SSH_KEY }}" > ~/.ssh/wattpilot_deploy
+          chmod 600 ~/.ssh/wattpilot_deploy
+          ssh-keyscan -H "${{ secrets.VM_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Deploy backend
+        run: |
+          scp -i ~/.ssh/wattpilot_deploy deploy/azure/deploy.sh \
+            "${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}:/tmp/wattpilot-deploy.sh"
+          ssh -i ~/.ssh/wattpilot_deploy "${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}" \
+            "chmod +x /tmp/wattpilot-deploy.sh && /tmp/wattpilot-deploy.sh ${{ needs.backend.outputs.image_tag }}"
+
+      - name: Deploy frontend
+        run: |
+          rsync -a --delete -e "ssh -i ~/.ssh/wattpilot_deploy" \
+            frontend-dist/ "${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}:/tmp/wattpilot-dist/"
+          ssh -i ~/.ssh/wattpilot_deploy "${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}" \
+            "rsync -a --delete /tmp/wattpilot-dist/ /app/wattpilot/frontend/dist/"
+
+      - name: Smoke check
+        run: curl -fsS https://www.wattpilot.dev/actuator/health
