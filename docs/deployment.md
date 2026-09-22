@@ -317,6 +317,10 @@ directly against the managed database if a run has not happened yet.
 
 ## Redeploying
 
+The normal path is the `Deploy` GitHub Actions workflow (manual `workflow_dispatch` only; see
+"CI/CD" below). The commands here are the manual fallback for when Actions or the VM's SSH access
+is unavailable.
+
 ```bash
 # Backend: local
 docker build -t ghcr.io/<owner>/wattpilot-backend:latest ./backend
@@ -428,41 +432,65 @@ This keeps local and production database schemas consistent.
 
 # CI/CD
 
-CI/CD is not yet implemented; deployments are currently manual (see "Production Architecture
-(Azure)" → "Procedure" and "Redeploying" above). GitHub Actions is expected to automate this later,
-targeting the same VM rather than AWS services:
+Implemented as two GitHub Actions workflows, both targeting the Azure VM described above rather
+than AWS services.
 
-## Backend (planned)
+## CI (`.github/workflows/ci.yml`)
 
-```
-Merge to main
-      ↓
-GitHub Actions
-      ↓
-Backend Tests
-      ↓
-Gradle Build
-      ↓
-Docker Build
-      ↓
-Push to GHCR
-      ↓
-SSH to VM: docker compose pull && up
-```
-
-## Frontend (planned)
+Runs on every push to `main` (`workflow_dispatch` also available for a manual run). It does not
+gate merges yet — WattPilot currently pushes directly to `main` rather than using pull requests
+(see TODO.md, section 2.1, for the branch-protection upgrade path).
 
 ```
-Merge to main
+Push to main
       ↓
-GitHub Actions
-      ↓
-npm ci
-      ↓
-Frontend Build
-      ↓
-rsync dist/ to the VM
+┌─────────────────┐   ┌──────────────────┐
+│ backend job      │   │ frontend job     │
+│ Gradle build     │   │ npm ci           │
+│ + unit tests     │   │ lint             │
+│ + Testcontainers │   │ build (tsc+vite) │
+│   integration    │   │                  │
+│   tests          │   │                  │
+└─────────────────┘   └──────────────────┘
 ```
+
+## CD (`.github/workflows/deploy.yml`)
+
+Manual only (`workflow_dispatch`, triggered from the Actions tab). Re-runs the same backend/frontend
+checks as CI against the exact commit being deployed, then deploys over SSH.
+
+```
+"Run workflow" clicked
+      ↓
+┌─────────────────────────┐   ┌───────────────────────┐
+│ backend job              │   │ frontend job           │
+│ Gradle build + tests     │   │ npm ci, lint, build    │
+│ Docker build             │   │ upload dist/ artifact  │
+│ Push ghcr.io/…:<sha>     │   │                        │
+│      and :latest         │   │                        │
+└─────────────────────────┘   └───────────────────────┘
+      ↓                              ↓
+            deploy job (needs both)
+      ↓
+SSH to the VM, run deploy/azure/deploy.sh <sha>:
+  - update BACKEND_IMAGE in /etc/wattpilot/wattpilot.env
+  - docker compose pull && up -d
+  - poll /actuator/health; on failure, revert BACKEND_IMAGE to the
+    previous tag, restart, and fail the workflow run
+      ↓
+rsync frontend-dist/ to /app/wattpilot/frontend/dist on the VM
+      ↓
+smoke check: curl https://www.wattpilot.dev/actuator/health
+```
+
+Deployment is versioned by commit SHA (`ghcr.io/0xchanseul/wattpilot-backend:<sha>`), so a bad
+deploy's automatic rollback returns to the previous image tag. This covers the running container
+only — it does not attempt to undo an already-applied Flyway migration; see TODO.md, section 2,
+for planned failure-handling/runbook work.
+
+Required GitHub Actions secrets: `VM_HOST`, `VM_USER`, `VM_SSH_KEY` (a deploy-only SSH key; its
+public half must be added to the VM's `~/.ssh/authorized_keys`). GHCR push uses the built-in
+`GITHUB_TOKEN`. The VM must already be able to pull from GHCR, same as the manual procedure above.
 
 # Configuration & Secrets
 
