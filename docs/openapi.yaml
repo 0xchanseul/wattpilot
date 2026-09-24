@@ -533,18 +533,25 @@ paths:
     get:
       tags: [Savings]
       summary: Get savings summary
+      description: >-
+        Realized totals (`baselineCostNok - actualCostNok`, `COMPLETED` sessions only) over
+        `[from, to]` — both bounds inclusive, resolved as Europe/Oslo calendar days, the same
+        convention `GET /dashboard` uses for its 30-day window. `400` when `to` is before `from`.
       operationId: getSavingsSummary
       parameters:
         - name: from
           in: query
           required: true
+          description: Inclusive start date (Europe/Oslo).
           schema: { type: string, format: date }
         - name: to
           in: query
           required: true
+          description: Inclusive end date (Europe/Oslo).
           schema: { type: string, format: date }
         - name: evId
           in: query
+          description: Restrict the summary to one EV.
           schema: { type: integer, format: int64, minimum: 1 }
       responses:
         '200':
@@ -558,23 +565,37 @@ paths:
   /savings/daily:
     get:
       tags: [Savings]
-      summary: Get daily savings trend
+      summary: Get daily (or monthly) savings trend
+      description: >-
+        Realized savings per bucket (`baselineCostNok - actualCostNok`, `COMPLETED` sessions only)
+        over `[from, to]` — both bounds inclusive, resolved as Europe/Oslo calendar days. Zero-filled:
+        every bucket in range is present even with no completed session that day/month. `400` when
+        `to` is before `from`.
       operationId: getDailySavings
       parameters:
         - name: from
           in: query
           required: true
+          description: Inclusive start date (Europe/Oslo).
           schema: { type: string, format: date }
         - name: to
           in: query
           required: true
+          description: Inclusive end date (Europe/Oslo).
           schema: { type: string, format: date }
         - name: evId
           in: query
+          description: Restrict the trend to one EV.
           schema: { type: integer, format: int64, minimum: 1 }
+        - name: granularity
+          in: query
+          description: >-
+            Bucket size. `DAILY` (default) buckets by Europe/Oslo calendar day. `MONTHLY` buckets by
+            Europe/Oslo calendar month, with each point's `date` set to the first day of that month.
+          schema: { $ref: '#/components/schemas/Granularity' }
       responses:
         '200':
-          description: Daily savings points
+          description: Savings points, ascending by date
           content:
             application/json:
               schema:
@@ -1308,8 +1329,17 @@ components:
         actualCostNok: { type: number, format: double }
         realizedSavingsNok: { type: number, format: double, description: baselineCostNok - actualCostNok. }
 
+    Granularity:
+      type: string
+      description: Bucket size for a `GET /savings/daily` point.
+      enum: [DAILY, MONTHLY]
+
     SavingsSummary:
       type: object
+      description: >-
+        Realized totals over `[from, to]` (both inclusive). `optimizedCostNok` is named after the
+        plan's field but is backed by the realized `actualCostNok` sum, matching the
+        charging-history/dashboard convention — never `estimatedSavingsNok`.
       required: [from, to, currency, completedSessionCount, totalEnergyKwh, optimizedCostNok, baselineCostNok, totalSavingsNok, savingsRatePercent]
       properties:
         from: { type: string, format: date }
@@ -1320,11 +1350,15 @@ components:
         totalEnergyKwh: { type: number, format: double, minimum: 0 }
         optimizedCostNok: { type: number, format: double, minimum: 0 }
         baselineCostNok: { type: number, format: double, minimum: 0 }
-        totalSavingsNok: { type: number, format: double }
-        savingsRatePercent: { type: number, format: double }
+        totalSavingsNok: { type: number, format: double, description: baselineCostNok - optimizedCostNok. }
+        savingsRatePercent: { type: number, format: double, description: totalSavingsNok / baselineCostNok * 100; 0 when baselineCostNok is 0. }
 
     DailySavings:
       type: object
+      description: >-
+        One bucket of `GET /savings/daily`, zero-filled when no session completed in that
+        day/month. `date` is the calendar day, or the first day of the month when
+        `granularity=MONTHLY`.
       required: [date, currency, sessionCount, energyKwh, optimizedCostNok, baselineCostNok, savingsNok]
       properties:
         date: { type: string, format: date }
@@ -1333,7 +1367,7 @@ components:
         energyKwh: { type: number, format: double, minimum: 0 }
         optimizedCostNok: { type: number, format: double, minimum: 0 }
         baselineCostNok: { type: number, format: double, minimum: 0 }
-        savingsNok: { type: number, format: double }
+        savingsNok: { type: number, format: double, description: baselineCostNok - optimizedCostNok. }
 
     PageMetadata:
       type: object

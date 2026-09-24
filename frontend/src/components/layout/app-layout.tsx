@@ -12,6 +12,7 @@ const NAV_ITEMS = [
   { to: '/evs', label: 'My EVs', match: '/evs' },
   { to: '/charging/schedules', label: 'Charging', match: '/charging' },
   { to: '/charging/history', label: 'History', match: '/charging/history' },
+  { to: '/savings', label: 'Savings', match: '/savings' },
 ] as const
 
 export function AppLayout() {

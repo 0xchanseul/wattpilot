@@ -29,9 +29,50 @@ const shortDateFormatter = new Intl.DateTimeFormat('en-GB', {
   month: 'short',
 })
 
-/** Compact axis-label form, e.g. "1 Sep" — for a plain `YYYY-MM-DD` date (no time component). */
+/**
+ * Compact axis-label form, e.g. "1 Sep" — for a plain `YYYY-MM-DD` date (no time component).
+ * Parsed as UTC midnight, not local midnight: the string is already an Oslo calendar date, and
+ * reinterpreting it in the *viewer's* local timezone can roll it back a day once converted back to
+ * Oslo (e.g. a Korean, UTC+9, browser: local midnight Sep 1 is Aug 31 17:00 Oslo time).
+ */
 export function formatShortDate(date: string): string {
-  return shortDateFormatter.format(new Date(`${date}T00:00:00`))
+  return shortDateFormatter.format(new Date(`${date}T00:00:00Z`))
+}
+
+const monthFormatter = new Intl.DateTimeFormat('en-GB', {
+  timeZone: OSLO_TIME_ZONE,
+  month: 'short',
+  year: 'numeric',
+})
+
+/**
+ * e.g. formatMonth("2026-09-01") -> "Sep 2026" — for a monthly-granularity `DailySavings.date`.
+ * Parsed as UTC midnight for the same reason as {@link formatShortDate}.
+ */
+export function formatMonth(date: string): string {
+  return monthFormatter.format(new Date(`${date}T00:00:00Z`))
+}
+
+const isoDateFormatter = new Intl.DateTimeFormat('en-CA', { timeZone: OSLO_TIME_ZONE })
+
+/** Today's calendar date in Europe/Oslo, as `YYYY-MM-DD` — matches the backend's day boundary. */
+export function todayIso(): string {
+  return isoDateFormatter.format(new Date())
+}
+
+/**
+ * Calendar-date arithmetic on a `YYYY-MM-DD` string, done in UTC so it is independent of the
+ * browser's local timezone. Used for the Savings page's range presets.
+ */
+export function isoDateMinus(date: string, unit: 'days' | 'months', amount: number): string {
+  const [year, month, day] = date.split('-').map(Number)
+  const utc = new Date(Date.UTC(year, month - 1, day))
+  if (unit === 'days') {
+    utc.setUTCDate(utc.getUTCDate() - amount)
+  } else {
+    utc.setUTCMonth(utc.getUTCMonth() - amount)
+  }
+  return utc.toISOString().slice(0, 10)
 }
 
 const numberFormatter = new Intl.NumberFormat('en-GB', { maximumFractionDigits: 2 })

@@ -46,11 +46,13 @@ export function DashboardPage() {
               <NextChargingCard nextCharging={data.nextCharging} />
             </div>
             <div className="lg:col-span-2">
-              <SavingsHeroCard
-                summary={data.summary}
-                trend={data.savingsTrend}
-                savingsPercent={data.costComparison.savingsPercent}
-              />
+              <Link to="/savings" className="block h-full">
+                <SavingsHeroCard
+                  summary={data.summary}
+                  trend={data.savingsTrend}
+                  savingsPercent={data.costComparison.savingsPercent}
+                />
+              </Link>
             </div>
           </div>
 

@@ -14,6 +14,7 @@ import { ChargingSchedulesPage } from '@/pages/charging-schedules-page'
 import { ChargingScheduleDetailPage } from '@/pages/charging-schedule-detail-page'
 import { ChargingHistoryPage } from '@/pages/charging-history-page'
 import { ChargingHistoryDetailPage } from '@/pages/charging-history-detail-page'
+import { SavingsPage } from '@/pages/savings-page'
 import { NotFoundPage } from '@/pages/not-found-page'
 
 export const router = createBrowserRouter([
@@ -41,6 +42,7 @@ export const router = createBrowserRouter([
           { path: 'charging/schedules/:scheduleId', element: <ChargingScheduleDetailPage /> },
           { path: 'charging/history', element: <ChargingHistoryPage /> },
           { path: 'charging/history/:sessionId', element: <ChargingHistoryDetailPage /> },
+          { path: 'savings', element: <SavingsPage /> },
         ],
       },
     ],

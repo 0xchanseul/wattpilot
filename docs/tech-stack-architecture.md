@@ -40,6 +40,7 @@ com.wattpilot
 ├─ scheduler
 ├─ history
 ├─ dashboard
+├─ savings
 ├─ integration
 └─ common
 ```
@@ -248,6 +249,15 @@ History treats **`realizedSavingsNok` as the saving** — the per-item value and
 - **`nextCharging`** is the `IN_PROGRESS` schedule if one is charging, otherwise the earliest-starting `WAITING` one — applied explicitly in `DashboardService`, not relied on via the query's `scheduledStartAt` ordering. `null` when the user has no active schedule.
 - **`currentPrice`** uses the caller's `users.default_price_area` (Dashboard takes no request parameters). `null` when no stored interval covers "now", so the rest of the payload still loads; `ElectricityPriceService.findCurrentPrice` is the non-throwing counterpart to `getCurrentPrice` (used by `GET /electricity-prices/latest`, which still 404s).
 - **`savingsTrend`** zero-fills all 30 Europe/Oslo calendar days for chart use. Day-bucketing happens in `DashboardService`, not the query: a timezone-aware `GROUP BY date` has no portable JPQL expression, and a single user's 30-day session volume is small enough that fetching the raw rows costs nothing.
+
+# Savings
+
+`com.wattpilot.savings` is the reporting counterpart to Dashboard's fixed 30-day window: `GET /savings/summary` and `GET /savings/daily` answer "how much did I save" over a caller-chosen date range, another read model over the same `charging_sessions -> charging_schedules -> charging_plans` join, with its own `SavingsRepository` (no table shared with Dashboard/History's row projections — each module owns its own).
+
+- **`from`/`to`** are plain dates, both inclusive, resolved as Europe/Oslo calendar days — unlike `GET /electricity-prices`'s half-open `[from, to)` instant window. `400 VALIDATION_ERROR` when `to` is before `from`.
+- **`granularity`** (`GET /savings/daily` only) is `DAILY` (default) or `MONTHLY`. Bucketing happens in `SavingsService`, in Java, for the same reason `DashboardService` buckets by day in Java: a timezone-aware `GROUP BY` has no portable JPQL expression. `MONTHLY` points use the first day of the Europe/Oslo calendar month as `date`. Every bucket in range is zero-filled, matching the Dashboard's `savingsTrend` convention.
+- **Realized savings only**, same as Dashboard/History: `baselineCostNok - actualCostNok`, never `charging_sessions.estimated_savings_nok`. `optimizedCostNok` is named after the plan's field but is backed by the realized `actualCostNok` sum.
+- **`evId`** filters both endpoints via `p.evId` the same way `ChargingHistoryRepository`'s `evId` filter does: an id the caller does not own, or that does not exist, simply matches nothing — no separate ownership check or 404.
 
 # Deployment Architecture
 
