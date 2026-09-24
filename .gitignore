@@ -38,3 +38,6 @@ replay_pid*
 
 # Claude Code personal settings
 .claude/settings.local.json
+
+# Local scratch planning notes (not published)
+/TODO.md
