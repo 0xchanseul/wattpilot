@@ -15,6 +15,8 @@ info:
 servers:
   - url: http://localhost:8081/api/v1
     description: Local development
+  - url: https://www.wattpilot.dev/api/v1
+    description: Production
 
 tags:
   - { name: Auth, description: Sign-up, login, token refresh, and current user }
@@ -128,7 +130,9 @@ paths:
     get:
       tags: [EV]
       summary: List my EVs
-      description: EVs owned by the current user, newest first.
+      description: >-
+        EVs owned by the current user, newest first. The order is fixed server-side and a `sort`
+        parameter is ignored.
       operationId: listEvs
       parameters:
         - $ref: '#/components/parameters/Page'
@@ -290,8 +294,9 @@ paths:
       tags: [Charging Optimization]
       summary: List my charging plans
       description: |
-        Charging plans that were persisted by confirming a schedule. Every stored plan is SUCCEEDED
-        (the preview flow never stores a FAILED plan), so `status=FAILED` returns an empty page.
+        Charging plans that were persisted by confirming a schedule, newest first. The order is fixed
+        server-side and a `sort` parameter is ignored. Every stored plan is SUCCEEDED (the preview
+        flow never stores a FAILED plan), so `status=FAILED` returns an empty page.
       operationId: listChargingPlans
       parameters:
         - $ref: '#/components/parameters/Page'
@@ -636,10 +641,14 @@ components:
     Page:
       name: page
       in: query
+      description: Zero-based page index. A negative value is treated as 0 rather than rejected.
       schema: { type: integer, minimum: 0, default: 0 }
     Size:
       name: size
       in: query
+      description: >-
+        Page size. Out-of-range values are adjusted rather than rejected: a value below 1 or a
+        non-numeric value falls back to the default and a value above 100 is capped at 100.
       schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
     PriceArea:
       name: priceArea

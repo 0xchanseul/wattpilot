@@ -46,6 +46,14 @@ Enum charging_session_status {
   CANCELLED
 }
 
+// Foreign-key delete behavior (the refs below carry no ON DELETE setting; the migrations do):
+//   ON DELETE CASCADE  - refresh_tokens.user_id, evs.user_id, charging_plans.user_id,
+//                        charging_plans.ev_id, charging_plan_slots.charging_plan_id,
+//                        charging_schedules.charging_plan_id, charging_schedule_slots.charging_schedule_id,
+//                        charging_sessions.charging_schedule_id
+//   ON DELETE RESTRICT - charging_plan_slots.electricity_price_id, charging_schedule_slots.electricity_price_id
+// In practice nothing deletes users or EVs: an EV is soft-deleted (status INACTIVE) and users are never removed.
+
 Table users {
   id bigint [pk, increment]
   email varchar(255) [not null, unique]
