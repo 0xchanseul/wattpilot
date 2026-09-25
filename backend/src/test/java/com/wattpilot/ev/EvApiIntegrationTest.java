@@ -96,6 +96,20 @@ class EvApiIntegrationTest {
     }
 
     @Test
+    void listingIgnoresAClientSuppliedSortAndStillReturnsNewestFirst() throws Exception {
+        String token = signUpAndToken();
+        long olderId = createEvAndReturnId(token, "Older car");
+        long newerId = createEvAndReturnId(token, "Newer car");
+
+        mockMvc.perform(get("/api/v1/evs")
+                        .param("sort", "noSuchProperty,asc")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].id").value(newerId))
+                .andExpect(jsonPath("$.content[1].id").value(olderId));
+    }
+
+    @Test
     void aDeactivatedEvCanBeReactivatedThroughPatch() throws Exception {
         String token = signUpAndToken();
         long evId = createEvAndReturnId(token, "My i4");

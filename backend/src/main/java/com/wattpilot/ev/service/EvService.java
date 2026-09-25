@@ -9,7 +9,9 @@ import com.wattpilot.ev.dto.UpdateEvRequest;
 import com.wattpilot.ev.entity.Ev;
 import com.wattpilot.ev.entity.EvStatus;
 import com.wattpilot.ev.repository.EvRepository;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -45,8 +47,11 @@ public class EvService {
      */
     public PageResponse<EvResponse> list(Long userId, EvStatus statusFilter, Pageable pageable) {
         EvStatus status = statusFilter != null ? statusFilter : EvStatus.ACTIVE;
+        // The order is fixed by the API contract; an unknown client-supplied sort property would otherwise fail as a 500.
+        Pageable newestFirst = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(),
+                Sort.by(Sort.Direction.DESC, "createdAt"));
         return PageResponse.from(
-                evRepository.findByUserIdAndStatus(userId, status, pageable).map(EvResponse::from));
+                evRepository.findByUserIdAndStatus(userId, status, newestFirst).map(EvResponse::from));
     }
 
     public EvResponse get(Long userId, Long evId) {

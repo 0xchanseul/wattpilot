@@ -10,7 +10,9 @@ import com.wattpilot.common.exception.BusinessException;
 import com.wattpilot.common.exception.ErrorCode;
 import com.wattpilot.common.response.PageResponse;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -52,9 +54,12 @@ public class ChargingPlanService {
             return PageResponse.from(Page.empty(pageable));
         }
 
+        // Newest first is fixed; an unknown client-supplied sort property would otherwise fail as a 500.
+        Pageable newestFirst = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(),
+                Sort.by(Sort.Direction.DESC, "createdAt"));
         Page<ChargingPlan> page = evId != null
-                ? planRepository.findByUserIdAndEvIdAndStatus(userId, evId, ChargingPlanStatus.SUCCEEDED, pageable)
-                : planRepository.findByUserIdAndStatus(userId, ChargingPlanStatus.SUCCEEDED, pageable);
+                ? planRepository.findByUserIdAndEvIdAndStatus(userId, evId, ChargingPlanStatus.SUCCEEDED, newestFirst)
+                : planRepository.findByUserIdAndStatus(userId, ChargingPlanStatus.SUCCEEDED, newestFirst);
 
         Map<Long, List<ChargingPlanSlot>> slotsByPlan = slotRepository
                 .findByChargingPlanIdInOrderByChargingPlanIdAscSequenceNoAsc(

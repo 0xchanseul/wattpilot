@@ -15,9 +15,11 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
@@ -27,6 +29,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -133,14 +136,27 @@ class EvServiceTest {
     @Test
     void listWithoutAStatusFilterQueriesActiveEvsOnly() {
         Pageable pageable = PageRequest.of(0, 20);
-        when(evRepository.findByUserIdAndStatus(USER_ID, EvStatus.ACTIVE, pageable))
+        when(evRepository.findByUserIdAndStatus(eq(USER_ID), eq(EvStatus.ACTIVE), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(activeEv()), pageable, 1));
 
         PageResponse<EvResponse> page = evService.list(USER_ID, null, pageable);
 
         assertThat(page.content()).hasSize(1);
         assertThat(page.page().totalElements()).isEqualTo(1);
-        verify(evRepository).findByUserIdAndStatus(USER_ID, EvStatus.ACTIVE, pageable);
+    }
+
+    @Test
+    void listReplacesAClientSuppliedSortWithNewestFirst() {
+        when(evRepository.findByUserIdAndStatus(eq(USER_ID), eq(EvStatus.ACTIVE), any(Pageable.class)))
+                .thenReturn(Page.empty());
+
+        evService.list(USER_ID, null, PageRequest.of(3, 7, Sort.by("noSuchProperty").ascending()));
+
+        ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
+        verify(evRepository).findByUserIdAndStatus(eq(USER_ID), eq(EvStatus.ACTIVE), captor.capture());
+        assertThat(captor.getValue().getSort()).isEqualTo(Sort.by(Sort.Direction.DESC, "createdAt"));
+        assertThat(captor.getValue().getPageNumber()).isEqualTo(3);
+        assertThat(captor.getValue().getPageSize()).isEqualTo(7);
     }
 
     private static Ev activeEv() {
