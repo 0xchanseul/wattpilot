@@ -81,7 +81,7 @@ Current state:
                         HTTPS (wattpilot.dev)
                                │
                                ▼
-                 Azure VM (resource group: wattpilot-test)
+                 Azure VM (resource group: wattpilot_rg)
                  ┌─────────────────────────────────────────┐
                  │  nginx (TLS termination, Let's Encrypt)  │
                  │    /            → static React build     │
@@ -106,7 +106,7 @@ npm run build         ──▶  dist/ copied to the VM for nginx to serve
 | Domain | `wattpilot.dev`, `www.wattpilot.dev` |
 | Database | Azure Database for PostgreSQL Flexible Server `Standard_B1ms` + 32 GiB, 12-month free |
 | Image registry | GitHub Container Registry (GHCR), free |
-| DB network access | Public access, firewall restricted to the VM's public IP |
+| DB network access | Private access (VNet integration): public network access disabled, reachable only from inside the VNet (see "Database Deployment") |
 | Frontend | Static build served by nginx from the same VM, same origin as the API |
 
 Confirm the currently free-eligible VM size and the PostgreSQL free offer at provisioning time; Azure
@@ -122,7 +122,7 @@ is Production, but the free-grant expiry still needs a plan (upgrade to a paid t
 | `backend/src/main/resources/application-prod.yml` | `prod` profile: managed DB with TLS, Swagger disabled, only `/actuator/health` exposed |
 | `backend/src/main/resources/application-cloud.yml` | `cloud` profile: currently unused, kept for a possible future throwaway environment |
 | `deploy/azure/docker-compose.yml` | Source of truth for what runs on the VM (backend container, bound to `127.0.0.1:8080`). Lives at `/app/wattpilot/docker-compose.yml` on the VM — must be copied/edited there by hand, it is not synced automatically |
-| `deploy/azure/.env.example` | Template for the real runtime env file, which lives at `/etc/wattpilot/wattpilot.env` on the VM (not `.env` next to the compose file) and is never committed |
+| `deploy/azure/.env.example` | Template for the real runtime env file, which lives at `/etc/wattpilot/wattpilot.env` on the VM (not `.env` next to the compose file) and is never committed. The template uses the `POSTGRES_*` variables read by `application-prod.yml`; the production VM's file instead sets `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME` and `SPRING_DATASOURCE_PASSWORD`, which take precedence over the `POSTGRES_*` values (the database user there is the application user, not the server administrator) |
 | `deploy/azure/nginx/wattpilot.conf` | nginx site config: TLS termination, static frontend (served from `/app/wattpilot/frontend/dist`), `/api/` reverse proxy |
 
 ## Procedure
@@ -148,7 +148,7 @@ Tests are skipped inside the image build because they need a Docker daemon (Test
 ### 2. Provision the database
 
 ```bash
-RG=wattpilot-test
+RG=wattpilot_rg
 LOC=swedencentral
 
 az group create -n $RG -l $LOC
@@ -179,6 +179,10 @@ az postgres flexible-server firewall-rule create \
   -g $RG -n <pg-server-name> --rule-name allow-vm \
   --start-ip-address $VM_IP --end-ip-address $VM_IP
 ```
+
+The firewall rule above is how the bootstrap was originally described. The running production server
+was set up with private access (VNet integration) instead, so this step does not apply to it; see
+"Database Deployment".
 
 ### 4. Install Docker on the VM
 
@@ -345,10 +349,12 @@ ssh azureuser@$VM_IP 'sudo rsync -a --delete /tmp/wattpilot-dist/ /app/wattpilot
   compute free grant and can produce small charges even in year one.
 - Set a Cost Management **budget alert** at a low threshold (e.g. USD 5) right after provisioning.
 - Add a calendar reminder to migrate or delete before the 12-month mark.
-- Full teardown removes every resource:
+- Full teardown removes every resource. All Azure resources (VM, network, database) live in the single
+  resource group `wattpilot_rg`, so this deletes Production, including the database and its automated
+  backups:
 
   ```bash
-  az group delete -n wattpilot-test --yes --no-wait
+  az group delete -n wattpilot_rg --yes --no-wait
   ```
 
 # Frontend Deployment
@@ -414,7 +420,18 @@ Azure VM (backend container)
 PostgreSQL Flexible Server
 ```
 
-The database is not publicly exposed — its firewall allows only the VM's public IP.
+The database is not publicly exposed. The server uses private access (VNet integration): it sits in
+a delegated subnet (`wattpilot-db-snet` in `wattpilot-vnet`), resolves through a private DNS zone
+(`wattpilot-postgres.private.postgres.database.azure.com`), and has public network access disabled.
+Only the application VM inside the VNet can connect. Consequences:
+
+- There are no firewall rules; `az postgres flexible-server firewall-rule` commands are rejected
+  ("Firewall rule operations are not supported for a server without public access enabled").
+- Ad-hoc queries (for example `psql`) must be run from the VM, not from a laptop or Azure Cloud Shell.
+
+Production values, as read from the running environment on 2026-09-25: server `wattpilot-postgres`,
+region Sweden Central, PostgreSQL 16, `Standard_B1ms`, 32 GiB. All Azure resources, including the VM,
+are in the single resource group `wattpilot_rg`.
 
 Production schema changes are managed through Flyway.
 
@@ -429,6 +446,111 @@ PostgreSQL Schema Update
 ```
 
 This keeps local and production database schemas consistent.
+
+# Database Backup and Restore
+
+## Backup policy
+
+Backups are the automated backups of Azure Database for PostgreSQL Flexible Server. Nothing runs on
+the VM for backups.
+
+| Item | Value |
+| --- | --- |
+| Mechanism | Azure automated backups with point-in-time restore (PITR) |
+| Frequency | Daily; the Azure portal backup list shows one completed backup per day at about 05:45 UTC |
+| Retention | 7 days (`backupRetentionDays: 7`) |
+| Geo-redundant backup | Disabled |
+
+Decision (2026-09-25): no additional manual `pg_dump` backup. The data is portfolio data, the
+electricity prices can be fetched again from the external API, and the built-in PITR was verified by
+the rehearsal below. Known limits of this choice:
+
+- Data cannot be recovered to a point older than the retention window (7 days).
+- Automated backups belong to the server, so they must not be relied on after the server itself is
+  deleted.
+- With geo-redundant backup disabled, a regional outage is not covered.
+
+Revisit this decision if any of these limits becomes unacceptable.
+
+## Restore procedure
+
+A restore always creates a **new** server; the existing server is never overwritten. Because the
+production server uses private access, the new server must be placed in the same delegated subnet
+and private DNS zone, and it can only be reached from the VM.
+
+1. Choose the restore point (UTC) inside the retention window.
+2. Create the restored server (Azure Cloud Shell or any machine with the Azure CLI):
+
+   ```bash
+   RG=wattpilot_rg
+   SRV=wattpilot-postgres
+   RESTORE=<new-server-name>
+
+   SUBNET_ID=$(az postgres flexible-server show -g $RG -n $SRV --query network.delegatedSubnetResourceId -o tsv)
+   DNS_ID=$(az postgres flexible-server show -g $RG -n $SRV --query network.privateDnsZoneArmResourceId -o tsv)
+
+   az postgres flexible-server restore -g $RG -n $RESTORE \
+     --source-server $SRV --restore-time "<UTC timestamp, e.g. 2026-09-25T07:16:09Z>" \
+     --subnet "$SUBNET_ID" --private-dns-zone "$DNS_ID"
+   ```
+
+   The restored server keeps the source server's administrator login and database roles. Its host name
+   is `<new-server-name>.postgres.database.azure.com`. The server name must be unique, so it cannot
+   reuse the name of the server it was restored from while that server still exists.
+3. Verify the restored data **from the VM** (the only place that can reach it). Connect with `psql`
+   using the application's database user and compare with the source server:
+
+   ```sql
+   select installed_rank, version, description, success from flyway_schema_history order by installed_rank;
+
+   select table_name,
+          (xpath('/row/c/text()', query_to_xml(format('select count(*) as c from %I.%I', table_schema, table_name), false, true, '')))[1]::text::int as row_count
+   from information_schema.tables
+   where table_schema = 'public' and table_type = 'BASE TABLE'
+   order by 1;
+   ```
+
+   The Flyway history must match exactly. Row counts may be lower on the restored server only by the
+   rows written after the restore point.
+4. Cutover (for a real recovery only; this step was **not** exercised in the rehearsal). On the VM,
+   point the backend at the restored server and recreate the container:
+
+   ```bash
+   sudo nano /etc/wattpilot/wattpilot.env   # change the datasource host to the restored server
+   cd /app/wattpilot && docker compose up -d   # `up -d` is required; a plain restart does not reload env
+   curl https://www.wattpilot.dev/actuator/health
+   ```
+
+   On the production VM the datasource is configured through `SPRING_DATASOURCE_URL`,
+   `SPRING_DATASOURCE_USERNAME` and `SPRING_DATASOURCE_PASSWORD`, not the `POSTGRES_*` variables that
+   `application-prod.yml` and `deploy/azure/.env.example` use. Check which variables the file actually
+   contains and change the host in `SPRING_DATASOURCE_URL`.
+5. After the recovery is confirmed, decide what to do with the old server. A rehearsal server must be
+   deleted right away, because it is billed while it exists:
+
+   ```bash
+   az postgres flexible-server delete -g $RG -n $RESTORE --yes
+   ```
+
+## Restore rehearsal record
+
+| Item | Result |
+| --- | --- |
+| Date | 2026-09-25 |
+| Source server | `wattpilot-postgres`, PostgreSQL 16, `Standard_B1ms`, 32 GiB, Sweden Central |
+| Restore point | 2026-09-25T07:16:09Z (one hour before the restore command) |
+| Restore duration | 7 min 19.9 s, measured with `time` around `az postgres flexible-server restore` until it returned with the server in state `Ready` |
+| Verification | From the VM: Flyway history V1-V5 identical (all `success = t`); row counts identical for all 10 tables |
+| Cleanup | Rehearsal server deleted after verification |
+
+Limits of this rehearsal:
+
+- Nothing was written to production between the restore point and the verification, so the identical
+  row counts confirm that the restore is complete and consistent, but do not prove that the chosen
+  point in time was applied exactly.
+- The cutover step (repointing the backend to the restored server) was not exercised.
+- The measured time covers only creating the restored server. A real recovery adds the verification
+  and the cutover.
 
 # CI/CD
 
@@ -530,7 +652,7 @@ POSTGRES_PORT
 - PostgreSQL container: `docker compose --env-file .env -f docker/postgres/docker-compose.yml up -d`
 - Backend: `application-local.yml` imports the file via `spring.config.import: optional:file:../../.env[.properties]` and maps the `POSTGRES_*` values onto the datasource. The import is optional, so plain environment variables also work.
 
-Production secrets live in `deploy/azure/.env` on the VM (git-ignored, never committed) — see
+Production secrets live in `/etc/wattpilot/wattpilot.env` on the VM (never committed) — see
 "Production Architecture (Azure)" → "Files" above.
 
 # Monitoring & Logging
