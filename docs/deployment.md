@@ -676,6 +676,12 @@ V1 uses a lightweight monitoring setup.
   consecutive failures mark it `unhealthy`, 60 s start period). Check the state with
   `docker ps` or `docker inspect -f '{{.State.Health.Status}}' wattpilot-backend`.
 
+  The VM's `/app/wattpilot/docker-compose.yml` is not synced by the deploy workflow (it only
+  swaps the image tag), so a change to this block takes effect only after the same edit is made on
+  the VM by hand, followed by `docker compose up -d` (this recreates the container, so expect a
+  short backend restart). A container that shows no health status in `docker ps` is still running
+  without the check.
+
   Docker only reports this state. `restart: unless-stopped` restarts the container when the process
   exits, but it does not restart an `unhealthy` container, so a hung application stays running
   until someone acts on the alert or restarts it by hand (`docker compose restart backend`).
