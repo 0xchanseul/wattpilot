@@ -33,6 +33,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
                 + "org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration,"
                 + "org.springframework.boot.hibernate.autoconfigure.HibernateJpaAutoConfiguration,"
                 + "org.springframework.boot.flyway.autoconfigure.FlywayAutoConfiguration",
+        // The readiness group lists "db", which does not exist without a DataSource.
+        "management.endpoint.health.validate-group-membership=false",
         // application-prod.yml intentionally has no CORS default and no JWT secret of its own;
         // supply just enough to let the security filter chain start.
         "wattpilot.security.jwt.secret=dGVzdC1vbmx5LXNlY3JldC1kby1ub3QtdXNlLWluLXByb2Q="

@@ -13,26 +13,37 @@ import com.wattpilot.savings.repository.SavingsRepository;
 import com.wattpilot.user.repository.UserRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.health.actuate.endpoint.HealthEndpointGroups;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+/**
+ * Boots the application without a database and checks that the endpoints listed in
+ * {@code SecurityConfig.PUBLIC_PATHS} (OpenAPI document, Swagger UI, health) answer without a token.
+ */
 @SpringBootTest(properties = {
         "spring.autoconfigure.exclude="
                 + "org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration,"
                 + "org.springframework.boot.hibernate.autoconfigure.HibernateJpaAutoConfiguration,"
-                + "org.springframework.boot.flyway.autoconfigure.FlywayAutoConfiguration"
+                + "org.springframework.boot.flyway.autoconfigure.FlywayAutoConfiguration",
+        // The readiness group lists "db", which does not exist without a DataSource.
+        "management.endpoint.health.validate-group-membership=false"
 })
 @AutoConfigureMockMvc
-class OpenApiEndpointsSmokeTest {
+class PublicEndpointsSmokeTest {
 
     @Autowired
     MockMvc mockMvc;
+
+    @Autowired
+    HealthEndpointGroups healthEndpointGroups;
 
     // The persistence layer is excluded above, so the repositories the services depend on are
     // stubbed; this test only cares that the OpenAPI document and Swagger UI are served.
@@ -96,9 +107,25 @@ class OpenApiEndpointsSmokeTest {
 
     @Test
     void actuatorHealthIsPubliclyAvailable() throws Exception {
-        // The ALB/ECS health check calls this endpoint with no Authorization header.
+        // The deploy smoke check and the external uptime monitor call this with no Authorization header.
         mockMvc.perform(get("/actuator/health"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("UP"));
+    }
+
+    @Test
+    void livenessAndReadinessProbesArePubliclyAvailable() throws Exception {
+        mockMvc.perform(get("/actuator/health/liveness"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("UP"));
+        mockMvc.perform(get("/actuator/health/readiness"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("UP"));
+    }
+
+    @Test
+    void databaseCountsTowardReadinessButNotLiveness() {
+        assertThat(healthEndpointGroups.get("readiness").isMember("db")).isTrue();
+        assertThat(healthEndpointGroups.get("liveness").isMember("db")).isFalse();
     }
 }

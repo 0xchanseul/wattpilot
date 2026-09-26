@@ -22,6 +22,16 @@ services:
       # directly to the internet.
       - "127.0.0.1:8080:8080"
     restart: unless-stopped
+    healthcheck:
+      # Liveness only: a database outage must not mark the container unhealthy, because
+      # restarting the application does not fix it. curl ships with the eclipse-temurin base image.
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8080/actuator/health/liveness"]
+      interval: 30s
+      # Generous for a 1 vCPU VM where a GC pause or CPU-credit throttling can delay a response.
+      timeout: 10s
+      retries: 3
+      # Failures during JVM startup and Flyway migrations do not count toward the retries.
+      start_period: 60s
     mem_limit: 768m
     logging:
       driver: json-file

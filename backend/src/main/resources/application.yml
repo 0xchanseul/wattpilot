@@ -21,9 +21,19 @@ management:
         include: health
   endpoint:
     health:
-      # Never show dependency details (DB, disk space) to an unauthenticated caller; the ALB/ECS
-      # health check only needs the top-level UP/DOWN status.
+      # Never show dependency details (DB, disk space) to an unauthenticated caller; health
+      # checks only need the top-level UP/DOWN status.
       show-details: never
+      # Serves /actuator/health/liveness and /actuator/health/readiness as sub-paths of the
+      # health endpoint, so the exposure setting above still opens nothing else.
+      probes:
+        enabled: true
+      group:
+        readiness:
+          # Listing the group members replaces the default (readinessState only). The database
+          # belongs here and not in liveness: restarting the application does not fix a database
+          # outage, so a database failure must not make the liveness check fail.
+          include: readinessState,db
 
 wattpilot:
   charging:

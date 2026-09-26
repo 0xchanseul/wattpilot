@@ -659,7 +659,46 @@ Production secrets live in `/etc/wattpilot/wattpilot.env` on the VM (never commi
 
 V1 uses a lightweight monitoring setup.
 
-- **Spring Boot Actuator** (`/actuator/health` only) for application health checks
+- **Spring Boot Actuator** (the `health` endpoint only) for application health checks:
+  - `/actuator/health` - aggregate status, including the database. Proxied by nginx, so it is
+    reachable from outside the VM (deploy smoke check, external uptime probe).
+  - `/actuator/health/liveness` - the application process itself; does not depend on the database,
+    because restarting the application does not fix a database outage.
+  - `/actuator/health/readiness` - whether the application can serve requests; includes the
+    database.
+
+  The liveness and readiness paths are not proxied by nginx and the backend port is bound to
+  `127.0.0.1`, so the backend answers them only on the VM itself (for example a container health
+  check). Through the public domain they fall through to the SPA fallback and return the frontend's
+  `index.html` with HTTP 200 whatever the backend state, so never point an external monitor at them.
+- **Container health check** (`healthcheck` in `deploy/azure/docker-compose.yml`): every 30 s Docker
+  runs `curl` against `/actuator/health/liveness` inside the backend container (10 s timeout, 3
+  consecutive failures mark it `unhealthy`, 60 s start period). Check the state with
+  `docker ps` or `docker inspect -f '{{.State.Health.Status}}' wattpilot-backend`.
+
+  Docker only reports this state. `restart: unless-stopped` restarts the container when the process
+  exits, but it does not restart an `unhealthy` container, so a hung application stays running
+  until someone acts on the alert or restarts it by hand (`docker compose restart backend`).
+- **External uptime monitoring** (UptimeRobot, free plan, 5-minute interval, e-mail alerts). It runs
+  outside the VM, so it also catches a dead VM, nginx, an expired certificate, or a DNS problem,
+  which the checks above cannot see:
+
+  | Monitor | Type | URL | Healthy when |
+  | --- | --- | --- | --- |
+  | API health | Keyword | `https://www.wattpilot.dev/actuator/health` | body contains `"status":"UP"` |
+  | Web | HTTP(s) | `https://www.wattpilot.dev/` | HTTP 200 |
+  | Apex redirect (optional) | HTTP(s) | `https://wattpilot.dev/` | redirect followed, HTTP 200 |
+
+  The API monitor matches the body instead of only the status code because nginx serves the SPA
+  for every unknown path: if the `/actuator/health` proxy rule were lost, the URL would still
+  answer 200 with HTML.
+
+  When the API monitor reports Down: check `docker ps` and `docker logs wattpilot-backend` on the
+  VM, then the database (`/actuator/health` also fails when the database is unreachable, and in a
+  local test it did not answer within 20 s in that case).
+
+  Verified: the alert e-mail is delivered (UptimeRobot's built-in notification test). Not
+  exercised: an actual outage being detected by the monitors.
 - **Docker container logs** (`docker compose logs`) and nginx access/error logs on the VM
 
 ```

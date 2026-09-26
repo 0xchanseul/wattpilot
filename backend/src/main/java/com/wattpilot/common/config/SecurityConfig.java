@@ -59,10 +59,12 @@ public class SecurityConfig {
             "/v3/api-docs/**",
             "/swagger-ui/**",
             "/swagger-ui.html",
-            // Load balancer / container orchestrator health check. Only "health" is ever exposed
-            // over HTTP (see application.yml management.endpoints.web.exposure.include), so this
-            // does not open up the rest of Actuator.
-            "/actuator/health"
+            // Container and uptime health checks call these without a token. Only "health" is ever
+            // exposed over HTTP (see application.yml management.endpoints.web.exposure.include),
+            // so this covers just the aggregate and the liveness/readiness groups, not the rest
+            // of Actuator.
+            "/actuator/health",
+            "/actuator/health/**"
     };
 
     @Bean
