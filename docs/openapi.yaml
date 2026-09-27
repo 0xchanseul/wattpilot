@@ -609,6 +609,55 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
+  /savings/patterns:
+    get:
+      tags: [Savings]
+      summary: Get realized savings by weekday or hour of day
+      description: >-
+        Realized savings (`COMPLETED` sessions only) over `[from, to]` — both bounds inclusive,
+        resolved as Europe/Oslo calendar days — re-bucketed by a recurring time dimension instead
+        of by calendar date. Unlike `GET /savings/daily`, a session's own cost is not attributed
+        as a whole: each of the session's charging plan slots is attributed to the weekday or hour
+        its own `slotStartAt` (Europe/Oslo) falls in, so a session that crosses midnight or several
+        price hours contributes to every bucket it actually ran in, not only the one it started in.
+        The slot's own `expectedCostNok` is used as that slot's optimized cost; the session's single
+        `baselineCostNok` is prorated across its slots by each slot's share of the session's
+        `actualEnergyKwh`. Zero-filled: every bucket of the chosen `groupBy` is present even with no
+        completed session contributing to it. `400` when `to` is before `from`.
+      operationId: getSavingsPatterns
+      parameters:
+        - name: from
+          in: query
+          required: true
+          description: Inclusive start date (Europe/Oslo).
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          required: true
+          description: Inclusive end date (Europe/Oslo).
+          schema: { type: string, format: date }
+        - name: evId
+          in: query
+          description: Restrict the pattern to one EV.
+          schema: { type: integer, format: int64, minimum: 1 }
+        - name: groupBy
+          in: query
+          required: true
+          description: Recurring time dimension to bucket by.
+          schema: { $ref: '#/components/schemas/PatternGroupBy' }
+      responses:
+        '200':
+          description: >-
+            Savings points, one per bucket of the chosen `groupBy`, ascending (Monday-Sunday for
+            `WEEKDAY`, 00-23 for `HOUR_OF_DAY`).
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/SavingsPatternPoint' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
 security:
   - bearerAuth: []
 
@@ -1368,7 +1417,7 @@ components:
         One bucket of `GET /savings/daily`, zero-filled when no session completed in that
         day/month. `date` is the calendar day, or the first day of the month when
         `granularity=MONTHLY`.
-      required: [date, currency, sessionCount, energyKwh, optimizedCostNok, baselineCostNok, savingsNok]
+      required: [date, currency, sessionCount, energyKwh, optimizedCostNok, baselineCostNok, savingsNok, savingsRatePercent]
       properties:
         date: { type: string, format: date }
         currency: { type: string, enum: [NOK] }
@@ -1377,6 +1426,31 @@ components:
         optimizedCostNok: { type: number, format: double, minimum: 0 }
         baselineCostNok: { type: number, format: double, minimum: 0 }
         savingsNok: { type: number, format: double, description: baselineCostNok - optimizedCostNok. }
+        savingsRatePercent: { type: number, format: double, description: savingsNok / baselineCostNok * 100; 0 when baselineCostNok is 0. }
+
+    PatternGroupBy:
+      type: string
+      description: Recurring time dimension for a `GET /savings/patterns` point.
+      enum: [WEEKDAY, HOUR_OF_DAY]
+
+    SavingsPatternPoint:
+      type: object
+      description: >-
+        One bucket of `GET /savings/patterns`, zero-filled when no charging plan slot fell in it.
+        `bucket` means ISO-8601 day of week (1=Monday..7=Sunday) when `groupBy=WEEKDAY`, or the
+        starting hour of day (0-23) when `groupBy=HOUR_OF_DAY`. Figures are summed across every
+        charging plan slot (of a `COMPLETED` session) whose own `slotStartAt` falls in this bucket,
+        not across whole sessions — see `GET /savings/patterns`'s description.
+      required: [bucket, currency, sessionCount, energyKwh, optimizedCostNok, baselineCostNok, savingsNok, savingsRatePercent]
+      properties:
+        bucket: { type: integer, description: 1-7 (ISO-8601 weekday) for WEEKDAY, 0-23 for HOUR_OF_DAY. }
+        currency: { type: string, enum: [NOK] }
+        sessionCount: { type: integer, minimum: 0, description: Number of distinct sessions contributing at least one slot to this bucket. }
+        energyKwh: { type: number, format: double, minimum: 0 }
+        optimizedCostNok: { type: number, format: double, minimum: 0 }
+        baselineCostNok: { type: number, format: double, minimum: 0 }
+        savingsNok: { type: number, format: double, description: baselineCostNok - optimizedCostNok. }
+        savingsRatePercent: { type: number, format: double, description: savingsNok / baselineCostNok * 100; 0 when baselineCostNok is 0. }
 
     PageMetadata:
       type: object

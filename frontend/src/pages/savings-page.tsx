@@ -1,6 +1,6 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
-import { BarChart3Icon, TrendingUpIcon, ZapIcon } from 'lucide-react'
+import { BarChart3Icon, CalendarDaysIcon, PercentIcon, TrendingUpIcon, ZapIcon } from 'lucide-react'
 
 import { ApiErrorAlert } from '@/components/api-error-alert'
 import { Button } from '@/components/ui/button'
@@ -9,9 +9,12 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useEvsQuery } from '@/features/ev/queries'
 import { DailySavingsChart } from '@/features/savings/components/daily-savings-chart'
 import { MonthlySavingsChart } from '@/features/savings/components/monthly-savings-chart'
+import { MonthlySavingsRateChart } from '@/features/savings/components/monthly-savings-rate-chart'
 import { SavingsFilters, type RangePreset } from '@/features/savings/components/savings-filters'
+import { SavingsPatternChart } from '@/features/savings/components/savings-pattern-chart'
 import { SavingsSummaryCards } from '@/features/savings/components/savings-summary-cards'
-import { useDailySavingsQuery, useSavingsSummaryQuery } from '@/features/savings/queries'
+import { useDailySavingsQuery, useSavingsPatternsQuery, useSavingsSummaryQuery } from '@/features/savings/queries'
+import type { PatternGroupBy } from '@/features/savings/types'
 import { isoDateMinus, todayIso } from '@/lib/format'
 
 const DEFAULT_PRESET: RangePreset = '6m'
@@ -48,9 +51,12 @@ export function SavingsPage() {
   const { data: evPage } = useEvsQuery({ size: 100 })
   const evs = useMemo(() => evPage?.content ?? [], [evPage])
 
+  const [patternGroupBy, setPatternGroupBy] = useState<PatternGroupBy>('WEEKDAY')
+
   const summaryQuery = useSavingsSummaryQuery({ from, to, evId })
   const dailyQuery = useDailySavingsQuery({ from, to, evId })
   const monthlyQuery = useDailySavingsQuery({ from, to, evId, granularity: 'MONTHLY' })
+  const patternsQuery = useSavingsPatternsQuery({ from, to, evId, groupBy: patternGroupBy })
 
   const updateParams = (
     next: Partial<{ from: string; to: string; evId: number | undefined; preset: RangePreset | null }>,
@@ -150,6 +156,22 @@ export function SavingsPage() {
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
+                    <PercentIcon className="text-muted-foreground size-4" />
+                    Savings rate
+                  </CardTitle>
+                  <p className="text-muted-foreground text-sm">
+                    Realized savings as a share of baseline cost, by calendar month — how well charging
+                    is timed, independent of how much was charged
+                  </p>
+                </CardHeader>
+                <CardContent>
+                  <MonthlySavingsRateChart points={monthlyQuery.data} />
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
                     <TrendingUpIcon className="text-muted-foreground size-4" />
                     Daily trend
                   </CardTitle>
@@ -157,6 +179,47 @@ export function SavingsPage() {
                 </CardHeader>
                 <CardContent>
                   <DailySavingsChart points={dailyQuery.data} />
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <CardTitle className="flex items-center gap-2">
+                        <CalendarDaysIcon className="text-muted-foreground size-4" />
+                        Savings by weekday / hour
+                      </CardTitle>
+                      <p className="text-muted-foreground text-sm">When charging has actually saved the most</p>
+                    </div>
+                    <div className="flex gap-1">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={patternGroupBy === 'WEEKDAY' ? 'default' : 'outline'}
+                        onClick={() => setPatternGroupBy('WEEKDAY')}
+                      >
+                        Weekday
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={patternGroupBy === 'HOUR_OF_DAY' ? 'default' : 'outline'}
+                        onClick={() => setPatternGroupBy('HOUR_OF_DAY')}
+                      >
+                        Hour of day
+                      </Button>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {patternsQuery.isPending ? (
+                    <Skeleton className="h-60 w-full" />
+                  ) : patternsQuery.isError ? (
+                    <p className="text-muted-foreground py-14 text-center text-sm">Could not load this breakdown.</p>
+                  ) : (
+                    <SavingsPatternChart points={patternsQuery.data} groupBy={patternGroupBy} />
+                  )}
                 </CardContent>
               </Card>
             </>

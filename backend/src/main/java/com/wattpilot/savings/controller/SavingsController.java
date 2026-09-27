@@ -3,6 +3,8 @@ package com.wattpilot.savings.controller;
 import com.wattpilot.common.security.AuthenticatedUser;
 import com.wattpilot.savings.dto.DailySavings;
 import com.wattpilot.savings.dto.Granularity;
+import com.wattpilot.savings.dto.PatternGroupBy;
+import com.wattpilot.savings.dto.SavingsPatternPoint;
 import com.wattpilot.savings.dto.SavingsSummary;
 import com.wattpilot.savings.service.SavingsService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -48,5 +50,16 @@ public class SavingsController {
             @RequestParam(name = "evId", required = false) Long evId,
             @RequestParam(name = "granularity", required = false) Granularity granularity) {
         return ResponseEntity.ok(savingsService.getDaily(authenticatedUser.userId(), from, to, evId, granularity));
+    }
+
+    @Operation(summary = "Get realized savings by weekday or hour of day")
+    @GetMapping("/patterns")
+    public ResponseEntity<List<SavingsPatternPoint>> getSavingsPatterns(
+            @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+            @RequestParam("from") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam("to") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(name = "evId", required = false) Long evId,
+            @RequestParam("groupBy") PatternGroupBy groupBy) {
+        return ResponseEntity.ok(savingsService.getPatterns(authenticatedUser.userId(), from, to, evId, groupBy));
     }
 }

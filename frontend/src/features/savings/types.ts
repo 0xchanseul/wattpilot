@@ -38,6 +38,28 @@ export interface DailySavings {
   baselineCostNok: number
   /** baselineCostNok - optimizedCostNok. */
   savingsNok: number
+  /** savingsNok / baselineCostNok * 100; 0 when baselineCostNok is 0. */
+  savingsRatePercent: number
+}
+
+export type PatternGroupBy = 'WEEKDAY' | 'HOUR_OF_DAY'
+
+/**
+ * One point of `GET /savings/patterns` — a recurring time bucket, not a calendar date. `bucket`
+ * means ISO-8601 day of week (1=Monday..7=Sunday) for `groupBy=WEEKDAY`, or the starting hour of day
+ * (0-23) for `groupBy=HOUR_OF_DAY`. Figures are summed across individual charging plan slots, so a
+ * session spanning several hours (or crossing midnight) contributes to every bucket it actually ran
+ * in, not only the one it started in. Zero-filled for a bucket with no contributing slot.
+ */
+export interface SavingsPatternPoint {
+  bucket: number
+  currency: 'NOK'
+  sessionCount: number
+  energyKwh: number
+  optimizedCostNok: number
+  baselineCostNok: number
+  savingsNok: number
+  savingsRatePercent: number
 }
 
 export interface SavingsQueryParams {
@@ -48,4 +70,8 @@ export interface SavingsQueryParams {
 
 export interface DailySavingsQueryParams extends SavingsQueryParams {
   granularity?: Granularity
+}
+
+export interface SavingsPatternQueryParams extends SavingsQueryParams {
+  groupBy: PatternGroupBy
 }

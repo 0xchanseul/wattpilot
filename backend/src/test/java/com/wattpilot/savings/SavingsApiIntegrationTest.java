@@ -40,10 +40,11 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 
 /**
- * Exercises {@code GET /savings/summary} and {@code GET /savings/daily} against a real PostgreSQL
- * instance: a completed session lands in the caller-chosen date range with realized savings, an
- * {@code evId} filter scopes both endpoints, {@code granularity=MONTHLY} rolls the day up into its
- * calendar month, and an inverted range is rejected.
+ * Exercises {@code GET /savings/summary}, {@code GET /savings/daily} and
+ * {@code GET /savings/patterns} against a real PostgreSQL instance: a completed session lands in the
+ * caller-chosen date range with realized savings, an {@code evId} filter scopes every endpoint,
+ * {@code granularity=MONTHLY} rolls the day up into its calendar month, patterns are zero-filled to
+ * the full weekday/hour range, and an inverted range (or a missing {@code groupBy}) is rejected.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -150,6 +151,49 @@ class SavingsApiIntegrationTest {
                 .andExpect(jsonPath("$.length()").value(1))
                 .andExpect(jsonPath("$[0].date").value(monthStart.toString()))
                 .andExpect(jsonPath("$[0].sessionCount").value(1));
+
+        // Patterns re-bucket the same realized savings by a recurring weekday or hour of day, zero-filled.
+        String hourlyPatternsBody = mockMvc.perform(get("/api/v1/savings/patterns")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .param("from", from.toString())
+                        .param("to", to.toString())
+                        .param("groupBy", "HOUR_OF_DAY"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(24))
+                .andReturn().getResponse().getContentAsString();
+        List<Object> hourlySessionCounts = JsonPath.read(hourlyPatternsBody, "$[*].sessionCount");
+        int hourlyTotalSessions = hourlySessionCounts.stream().mapToInt(v -> ((Number) v).intValue()).sum();
+        org.assertj.core.api.Assertions.assertThat(hourlyTotalSessions).isGreaterThanOrEqualTo(1);
+
+        mockMvc.perform(get("/api/v1/savings/patterns")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .param("from", from.toString())
+                        .param("to", to.toString())
+                        .param("groupBy", "WEEKDAY"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(7));
+
+        // Scoped to the EV that actually charged, the pattern still reflects the session.
+        mockMvc.perform(get("/api/v1/savings/patterns")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .param("from", from.toString())
+                        .param("to", to.toString())
+                        .param("groupBy", "HOUR_OF_DAY")
+                        .param("evId", String.valueOf(evId)))
+                .andExpect(status().isOk());
+
+        // An EV the caller does not own scopes to no sessions, not an error.
+        String unownedEvPatternsBody = mockMvc.perform(get("/api/v1/savings/patterns")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .param("from", from.toString())
+                        .param("to", to.toString())
+                        .param("groupBy", "HOUR_OF_DAY")
+                        .param("evId", "999999"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        List<Object> unownedEvSessionCounts = JsonPath.read(unownedEvPatternsBody, "$[*].sessionCount");
+        org.assertj.core.api.Assertions.assertThat(unownedEvSessionCounts.stream().mapToInt(v -> ((Number) v).intValue()).sum())
+                .isZero();
     }
 
     @Test
@@ -162,6 +206,24 @@ class SavingsApiIntegrationTest {
                         .param("to", "2026-09-01"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+    }
+
+    @Test
+    void patternsRejectAnInvertedRangeAndAMissingGroupBy() throws Exception {
+        String token = signUpAndToken();
+
+        mockMvc.perform(get("/api/v1/savings/patterns")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .param("from", "2026-09-10")
+                        .param("to", "2026-09-01")
+                        .param("groupBy", "WEEKDAY"))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(get("/api/v1/savings/patterns")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .param("from", "2026-09-01")
+                        .param("to", "2026-09-10"))
+                .andExpect(status().isBadRequest());
     }
 
     private long confirmSchedule(String token, long evId, OffsetDateTime deadline) throws Exception {

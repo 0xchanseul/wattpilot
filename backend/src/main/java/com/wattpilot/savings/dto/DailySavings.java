@@ -1,6 +1,7 @@
 package com.wattpilot.savings.dto;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 
 /**
@@ -16,12 +17,23 @@ public record DailySavings(
         BigDecimal energyKwh,
         BigDecimal optimizedCostNok,
         BigDecimal baselineCostNok,
-        BigDecimal savingsNok
+        BigDecimal savingsNok,
+        BigDecimal savingsRatePercent
 ) {
 
     private static final String CURRENCY_NOK = "NOK";
+    private static final int PERCENT_SCALE = 2;
 
     public static DailySavings zero(LocalDate date) {
-        return new DailySavings(date, CURRENCY_NOK, 0, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO);
+        BigDecimal zeroRate = BigDecimal.ZERO.setScale(PERCENT_SCALE, RoundingMode.UNNECESSARY);
+        return new DailySavings(date, CURRENCY_NOK, 0, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
+                BigDecimal.ZERO, zeroRate);
+    }
+
+    public static DailySavings of(LocalDate date, int sessionCount, BigDecimal energyKwh,
+                                  BigDecimal optimizedCostNok, BigDecimal baselineCostNok) {
+        BigDecimal savingsNok = baselineCostNok.subtract(optimizedCostNok);
+        return new DailySavings(date, CURRENCY_NOK, sessionCount, energyKwh, optimizedCostNok, baselineCostNok,
+                savingsNok, SavingsRateCalculator.percent(savingsNok, baselineCostNok));
     }
 }

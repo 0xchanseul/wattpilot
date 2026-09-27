@@ -5,8 +5,11 @@ import com.wattpilot.common.exception.BusinessException;
 import com.wattpilot.common.exception.ErrorCode;
 import com.wattpilot.savings.dto.DailySavings;
 import com.wattpilot.savings.dto.Granularity;
+import com.wattpilot.savings.dto.PatternGroupBy;
+import com.wattpilot.savings.dto.SavingsPatternPoint;
 import com.wattpilot.savings.dto.SavingsSummary;
 import com.wattpilot.savings.repository.SavingsAggregateRow;
+import com.wattpilot.savings.repository.SavingsPatternSlotRow;
 import com.wattpilot.savings.repository.SavingsRepository;
 import com.wattpilot.savings.repository.SavingsSessionRow;
 import org.junit.jupiter.api.Test;
@@ -19,6 +22,7 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -160,5 +164,132 @@ class SavingsServiceTest {
         service().getDaily(USER_ID, LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 1), 7L, null);
 
         verify(savingsRepository, never()).findCompletedInRange(any(), any(), any(), any());
+    }
+
+    @Test
+    void patternsRejectsAToBeforeFromWithoutQueryingTheRepository() {
+        assertThatThrownBy(() -> service().getPatterns(
+                USER_ID, LocalDate.of(2026, 9, 10), LocalDate.of(2026, 9, 1), null, PatternGroupBy.WEEKDAY))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).errorCode())
+                .isEqualTo(ErrorCode.VALIDATION_ERROR);
+        verify(savingsRepository, never()).findSlotsInRange(any(), any(), any(), any());
+    }
+
+    @Test
+    void patternsZeroFillsAllHoursWhenThereAreNoSlots() {
+        when(savingsRepository.findSlotsInRange(eq(USER_ID), eq(ChargingSessionStatus.COMPLETED), any(), any()))
+                .thenReturn(List.of());
+
+        List<SavingsPatternPoint> patterns = service().getPatterns(
+                USER_ID, LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 5), null, PatternGroupBy.HOUR_OF_DAY);
+
+        assertThat(patterns).extracting(SavingsPatternPoint::bucket)
+                .containsExactlyElementsOf(IntStream.range(0, 24).boxed().toList());
+        assertThat(patterns).allSatisfy(point -> {
+            assertThat(point.sessionCount()).isZero();
+            assertThat(point.savingsNok()).isEqualByComparingTo(BigDecimal.ZERO);
+            assertThat(point.savingsRatePercent()).isEqualByComparingTo(BigDecimal.ZERO);
+        });
+    }
+
+    @Test
+    void patternsZeroFillsAllWeekdaysWhenThereAreNoSlots() {
+        when(savingsRepository.findSlotsInRange(eq(USER_ID), eq(ChargingSessionStatus.COMPLETED), any(), any()))
+                .thenReturn(List.of());
+
+        List<SavingsPatternPoint> patterns = service().getPatterns(
+                USER_ID, LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 5), null, PatternGroupBy.WEEKDAY);
+
+        assertThat(patterns).extracting(SavingsPatternPoint::bucket).containsExactly(1, 2, 3, 4, 5, 6, 7);
+    }
+
+    @Test
+    void patternsSplitASessionCrossingAnHourBoundaryAcrossBothHourBucketsInsteadOfOnlyItsStartHour() {
+        // 20:30Z/21:30Z are 22:30/23:30 in Europe/Oslo (CEST, +02:00) in September - two different hours.
+        OffsetDateTime slot1Start = OffsetDateTime.parse("2026-09-10T20:30:00Z");
+        OffsetDateTime slot2Start = OffsetDateTime.parse("2026-09-10T21:30:00Z");
+        when(savingsRepository.findSlotsInRange(eq(USER_ID), eq(ChargingSessionStatus.COMPLETED), any(), any()))
+                .thenReturn(List.of(
+                        new SavingsPatternSlotRow(1L, slot1Start, new BigDecimal("6.00"), new BigDecimal("3.0000"),
+                                new BigDecimal("10.00"), new BigDecimal("20.0000")),
+                        new SavingsPatternSlotRow(1L, slot2Start, new BigDecimal("4.00"), new BigDecimal("2.0000"),
+                                new BigDecimal("10.00"), new BigDecimal("20.0000"))));
+
+        List<SavingsPatternPoint> patterns = service().getPatterns(
+                USER_ID, LocalDate.of(2026, 9, 10), LocalDate.of(2026, 9, 10), null, PatternGroupBy.HOUR_OF_DAY);
+
+        SavingsPatternPoint hour22 = patterns.stream().filter(p -> p.bucket() == 22).findFirst().orElseThrow();
+        SavingsPatternPoint hour23 = patterns.stream().filter(p -> p.bucket() == 23).findFirst().orElseThrow();
+
+        // baseline prorated by each slot's share of the session's 10.00 kWh: 20.00 * 6/10 and 20.00 * 4/10.
+        assertThat(hour22.sessionCount()).isEqualTo(1);
+        assertThat(hour22.energyKwh()).isEqualByComparingTo("6.00");
+        assertThat(hour22.baselineCostNok()).isEqualByComparingTo("12.0000");
+        assertThat(hour22.savingsNok()).isEqualByComparingTo("9.0000");
+
+        assertThat(hour23.sessionCount()).isEqualTo(1);
+        assertThat(hour23.energyKwh()).isEqualByComparingTo("4.00");
+        assertThat(hour23.baselineCostNok()).isEqualByComparingTo("8.0000");
+        assertThat(hour23.savingsNok()).isEqualByComparingTo("6.0000");
+
+        // No bucket carries the session's whole 20.00 baseline: the split adds back up to it (12 + 8).
+        assertThat(patterns.stream().filter(p -> p.sessionCount() > 0)).hasSize(2);
+    }
+
+    @Test
+    void patternsSplitASessionCrossingMidnightAcrossBothWeekdayBucketsInsteadOfOnlyItsStartDay() {
+        // Sep 7, 2026 is a Monday in Europe/Oslo. 20:00Z/22:30Z are 22:00 Monday / 00:30 Tuesday locally (CEST, +02:00).
+        OffsetDateTime mondayEvening = OffsetDateTime.parse("2026-09-07T20:00:00Z");
+        OffsetDateTime tuesdayJustAfterMidnight = OffsetDateTime.parse("2026-09-07T22:30:00Z");
+        when(savingsRepository.findSlotsInRange(eq(USER_ID), eq(ChargingSessionStatus.COMPLETED), any(), any()))
+                .thenReturn(List.of(
+                        new SavingsPatternSlotRow(2L, mondayEvening, new BigDecimal("5.00"), new BigDecimal("2.5000"),
+                                new BigDecimal("8.00"), new BigDecimal("16.0000")),
+                        new SavingsPatternSlotRow(2L, tuesdayJustAfterMidnight, new BigDecimal("3.00"), new BigDecimal("1.0000"),
+                                new BigDecimal("8.00"), new BigDecimal("16.0000"))));
+
+        List<SavingsPatternPoint> patterns = service().getPatterns(
+                USER_ID, LocalDate.of(2026, 9, 7), LocalDate.of(2026, 9, 7), null, PatternGroupBy.WEEKDAY);
+
+        SavingsPatternPoint monday = patterns.stream().filter(p -> p.bucket() == 1).findFirst().orElseThrow();
+        SavingsPatternPoint tuesday = patterns.stream().filter(p -> p.bucket() == 2).findFirst().orElseThrow();
+
+        assertThat(monday.sessionCount()).isEqualTo(1);
+        assertThat(monday.baselineCostNok()).isEqualByComparingTo("10.0000"); // 16.00 * 5/8
+        assertThat(monday.savingsNok()).isEqualByComparingTo("7.5000");
+
+        assertThat(tuesday.sessionCount()).isEqualTo(1);
+        assertThat(tuesday.baselineCostNok()).isEqualByComparingTo("6.0000"); // 16.00 * 3/8
+        assertThat(tuesday.savingsNok()).isEqualByComparingTo("5.0000");
+    }
+
+    @Test
+    void patternsCountsASessionOnceWhenTwoOfItsSlotsLandInTheSameBucket() {
+        OffsetDateTime slot1Start = OffsetDateTime.parse("2026-09-10T08:00:00Z"); // hour 10 in Oslo
+        OffsetDateTime slot2Start = OffsetDateTime.parse("2026-09-10T08:30:00Z"); // same Oslo hour
+        when(savingsRepository.findSlotsInRange(eq(USER_ID), eq(ChargingSessionStatus.COMPLETED), any(), any()))
+                .thenReturn(List.of(
+                        new SavingsPatternSlotRow(3L, slot1Start, new BigDecimal("2.00"), new BigDecimal("1.0000"),
+                                new BigDecimal("4.00"), new BigDecimal("8.0000")),
+                        new SavingsPatternSlotRow(3L, slot2Start, new BigDecimal("2.00"), new BigDecimal("1.0000"),
+                                new BigDecimal("4.00"), new BigDecimal("8.0000"))));
+
+        List<SavingsPatternPoint> patterns = service().getPatterns(
+                USER_ID, LocalDate.of(2026, 9, 10), LocalDate.of(2026, 9, 10), null, PatternGroupBy.HOUR_OF_DAY);
+
+        SavingsPatternPoint hour10 = patterns.stream().filter(p -> p.bucket() == 10).findFirst().orElseThrow();
+        assertThat(hour10.sessionCount()).isEqualTo(1);
+        assertThat(hour10.energyKwh()).isEqualByComparingTo("4.00");
+    }
+
+    @Test
+    void patternsQueriesTheEvScopedRepositoryMethodWhenEvIdIsGiven() {
+        when(savingsRepository.findSlotsInRangeByEv(eq(USER_ID), eq(9L), eq(ChargingSessionStatus.COMPLETED), any(), any()))
+                .thenReturn(List.of());
+
+        service().getPatterns(USER_ID, LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 1), 9L, PatternGroupBy.HOUR_OF_DAY);
+
+        verify(savingsRepository, never()).findSlotsInRange(any(), any(), any(), any());
     }
 }

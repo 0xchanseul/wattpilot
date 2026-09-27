@@ -10,11 +10,13 @@ import java.time.OffsetDateTime;
 import java.util.List;
 
 /**
- * Read-only aggregate queries backing {@code GET /savings/summary} and {@code GET /savings/daily},
- * over the same {@code charging_sessions -> charging_schedules -> charging_plans} join
- * {@link com.wattpilot.dashboard.repository.DashboardRepository} and
+ * Read-only aggregate queries backing {@code GET /savings/summary}, {@code GET /savings/daily} and
+ * {@code GET /savings/patterns}, over the same {@code charging_sessions -> charging_schedules ->
+ * charging_plans} join {@link com.wattpilot.dashboard.repository.DashboardRepository} and
  * {@code com.wattpilot.history.repository.ChargingHistoryRepository} use: the plan carries the
- * owning user and {@code evId}, so every query here is user-scoped with no N+1.
+ * owning user and {@code evId}, so every query here is user-scoped with no N+1. The
+ * {@code findSlotsInRange*} queries join one level further, to {@code charging_plan_slots}, since a
+ * pattern point is built from each session's individual slots rather than its one summary row.
  *
  * <p>Savings are always realized figures ({@code baselineCostNok - actualCostNok}), matching the
  * charging-history convention: the plan's own {@code estimated_savings_nok} is never summed here.
@@ -88,6 +90,42 @@ public interface SavingsRepository extends Repository<ChargingSession, Long> {
             order by se.completedAt asc
             """)
     List<SavingsSessionRow> findCompletedInRangeByEv(@Param("userId") Long userId,
+                                                      @Param("evId") Long evId,
+                                                      @Param("completedStatus") ChargingSessionStatus completedStatus,
+                                                      @Param("since") OffsetDateTime since,
+                                                      @Param("until") OffsetDateTime until);
+
+    @Query("""
+            select new com.wattpilot.savings.repository.SavingsPatternSlotRow(
+                se.id, sl.slotStartAt, sl.plannedEnergyKwh, sl.expectedCostNok, se.actualEnergyKwh, se.baselineCostNok)
+            from ChargingSession se, ChargingSchedule sc, ChargingPlan p, ChargingPlanSlot sl
+            where se.chargingScheduleId = sc.id
+              and sc.chargingPlanId = p.id
+              and sl.chargingPlanId = p.id
+              and p.userId = :userId
+              and se.status = :completedStatus
+              and se.completedAt >= :since
+              and se.completedAt < :until
+            """)
+    List<SavingsPatternSlotRow> findSlotsInRange(@Param("userId") Long userId,
+                                                 @Param("completedStatus") ChargingSessionStatus completedStatus,
+                                                 @Param("since") OffsetDateTime since,
+                                                 @Param("until") OffsetDateTime until);
+
+    @Query("""
+            select new com.wattpilot.savings.repository.SavingsPatternSlotRow(
+                se.id, sl.slotStartAt, sl.plannedEnergyKwh, sl.expectedCostNok, se.actualEnergyKwh, se.baselineCostNok)
+            from ChargingSession se, ChargingSchedule sc, ChargingPlan p, ChargingPlanSlot sl
+            where se.chargingScheduleId = sc.id
+              and sc.chargingPlanId = p.id
+              and sl.chargingPlanId = p.id
+              and p.userId = :userId
+              and p.evId = :evId
+              and se.status = :completedStatus
+              and se.completedAt >= :since
+              and se.completedAt < :until
+            """)
+    List<SavingsPatternSlotRow> findSlotsInRangeByEv(@Param("userId") Long userId,
                                                       @Param("evId") Long evId,
                                                       @Param("completedStatus") ChargingSessionStatus completedStatus,
                                                       @Param("since") OffsetDateTime since,
