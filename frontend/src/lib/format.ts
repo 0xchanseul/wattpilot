@@ -60,6 +60,11 @@ export function todayIso(): string {
   return isoDateFormatter.format(new Date())
 }
 
+/** The Europe/Oslo calendar date, as `YYYY-MM-DD`, that an ISO instant falls on. */
+export function osloDateOf(iso: string): string {
+  return isoDateFormatter.format(new Date(iso))
+}
+
 /**
  * Calendar-date arithmetic on a `YYYY-MM-DD` string, done in UTC so it is independent of the
  * browser's local timezone. Used for the Savings page's range presets.

@@ -1,9 +1,11 @@
+import { useMemo } from 'react'
 import { Link } from 'react-router'
-import { ArrowRightIcon, TrendingUpIcon } from 'lucide-react'
+import { ArrowRightIcon, TrendingUpIcon, ZapIcon } from 'lucide-react'
 
 import { ApiErrorAlert } from '@/components/api-error-alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
 import { useAuth } from '@/features/auth/use-auth'
 import { CostComparisonCard } from '@/features/dashboard/components/cost-comparison-card'
 import { DashboardSkeleton } from '@/features/dashboard/components/dashboard-skeleton'
@@ -13,11 +15,32 @@ import { SavingsHeroCard } from '@/features/dashboard/components/savings-hero-ca
 import { SavingsTrendChart } from '@/features/dashboard/components/savings-trend-chart'
 import { SummaryCards } from '@/features/dashboard/components/summary-cards'
 import { useDashboardQuery } from '@/features/dashboard/queries'
+import { TodayPriceChart } from '@/features/electricity/components/today-price-chart'
+import { useElectricityPricesQuery } from '@/features/electricity/queries'
+import { osloDateOf, todayIso } from '@/lib/format'
+
+/** A 2-UTC-day window guaranteed to fully contain today's Europe/Oslo calendar day, regardless of DST offset. */
+function utcWindowAroundToday(): { from: string; to: string } {
+  const now = new Date()
+  const from = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1))
+  const to = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1))
+  return { from: from.toISOString(), to: to.toISOString() }
+}
 
 export function DashboardPage() {
   const { user } = useAuth()
   const { data, isPending, isError, error, refetch } = useDashboardQuery()
   const firstName = user?.name.split(' ')[0] ?? 'there'
+
+  const priceArea = user?.defaultPriceArea
+  const todayPricesRange = useMemo(() => utcWindowAroundToday(), [])
+  const todayPricesQuery = useElectricityPricesQuery(
+    priceArea ? { priceArea, from: todayPricesRange.from, to: todayPricesRange.to } : null,
+  )
+  const todayPrices = useMemo(() => {
+    const today = todayIso()
+    return (todayPricesQuery.data?.prices ?? []).filter((price) => osloDateOf(price.startsAt) === today)
+  }, [todayPricesQuery.data])
 
   return (
     <div className="space-y-8">
@@ -57,6 +80,25 @@ export function DashboardPage() {
           </div>
 
           <SummaryCards summary={data.summary} currentPrice={data.currentPrice} />
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <ZapIcon className="text-muted-foreground size-4" />
+                Today&apos;s cheapest hours
+              </CardTitle>
+              <p className="text-muted-foreground text-sm">When today&apos;s electricity is cheapest</p>
+            </CardHeader>
+            <CardContent>
+              {todayPricesQuery.isPending && priceArea ? (
+                <Skeleton className="h-52 w-full" />
+              ) : todayPricesQuery.isError ? (
+                <p className="text-muted-foreground py-14 text-center text-sm">Could not load today&apos;s prices.</p>
+              ) : (
+                <TodayPriceChart prices={todayPrices} />
+              )}
+            </CardContent>
+          </Card>
 
           <Card>
             <CardHeader>
