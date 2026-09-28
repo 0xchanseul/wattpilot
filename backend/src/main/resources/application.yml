@@ -57,18 +57,25 @@ wattpilot:
       retry-initial-backoff: ${CHARGING_EXECUTION_RETRY_INITIAL_BACKOFF:PT1M}
       retry-backoff-multiplier: ${CHARGING_EXECUTION_RETRY_BACKOFF_MULTIPLIER:2.0}
 
-      # Demo/test-only Mock Charging failure injection. Empty by default: mock charging always
-      # succeeds. Map a charging-schedule id to the failure the adapter should simulate for it:
-      #   CHARGER_UNAVAILABLE | VEHICLE_DISCONNECTED | START_REJECTED - start-phase business failure,
-      #     the schedule ends FAILED immediately with no retry
-      #   CHARGING_INTERRUPTED - completion-phase business failure (schedule reaches IN_PROGRESS first)
-      #   SYSTEM_ERROR - the adapter throws on start, so the bounded retry above runs and the schedule
-      #     ends FAILED(SYSTEM_ERROR) once the budget is exhausted
-      # Set it per environment/profile (a Map does not override cleanly from a single env var):
-      # mock:
-      #   failures:
-      #     12: CHARGER_UNAVAILABLE
-      #     15: SYSTEM_ERROR
+      mock:
+        # Random low-probability failure so ordinary Mock Charging use - not just a deliberately
+        # configured demo - occasionally produces a failed session, instead of every session always
+        # completing. On by default here (real/demo environment); off in application-local.yml so
+        # local dev and the test suite keep a deterministic-success default.
+        random-failure-enabled: ${CHARGING_EXECUTION_MOCK_RANDOM_FAILURE_ENABLED:true}
+        random-failure-rate: ${CHARGING_EXECUTION_MOCK_RANDOM_FAILURE_RATE:0.10}
+
+        # Demo/test-only deterministic failure injection. Empty by default. Map a charging-schedule id
+        # to the failure the adapter should simulate for it (always wins over the random roll above):
+        #   CHARGER_UNAVAILABLE | VEHICLE_DISCONNECTED | START_REJECTED - start-phase business failure,
+        #     the schedule ends FAILED immediately with no retry
+        #   CHARGING_INTERRUPTED - completion-phase business failure (schedule reaches IN_PROGRESS first)
+        #   SYSTEM_ERROR - the adapter throws on start, so the bounded retry above runs and the schedule
+        #     ends FAILED(SYSTEM_ERROR) once the budget is exhausted
+        # Set it per environment/profile (a Map does not override cleanly from a single env var):
+        # failures:
+        #   12: CHARGER_UNAVAILABLE
+        #   15: SYSTEM_ERROR
 
   electricity:
     collection:

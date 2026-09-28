@@ -32,6 +32,34 @@ class MockChargingPropertiesTest {
     }
 
     @Test
+    void defaultsRandomFailureToDisabledWithATenPercentRate() {
+        MockChargingProperties properties = bind(new MockEnvironment());
+
+        assertThat(properties.randomFailureEnabled()).isFalse();
+        assertThat(properties.randomFailureRate()).isEqualTo(0.10);
+    }
+
+    @Test
+    void bindsRandomFailureEnabledAndRate() {
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty("wattpilot.charging.execution.mock.random-failure-enabled", "true")
+                .withProperty("wattpilot.charging.execution.mock.random-failure-rate", "0.25");
+
+        MockChargingProperties properties = bind(environment);
+
+        assertThat(properties.randomFailureEnabled()).isTrue();
+        assertThat(properties.randomFailureRate()).isEqualTo(0.25);
+    }
+
+    @Test
+    void rejectsARandomFailureRateOutsideZeroToOne() {
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty("wattpilot.charging.execution.mock.random-failure-rate", "1.5");
+
+        assertThatThrownBy(() -> bind(environment)).hasRootCauseInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     void rejectsMissedExecutionWindowInjection() {
         MockEnvironment environment = new MockEnvironment()
                 .withProperty("wattpilot.charging.execution.mock.failures.1", "MISSED_EXECUTION_WINDOW");
