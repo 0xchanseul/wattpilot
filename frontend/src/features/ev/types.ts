@@ -30,3 +30,12 @@ export interface ListEvsParams {
   page?: number
   size?: number
 }
+
+/** A curated vehicle spec preset (V1.5 master data) used only to prefill the EV registration form. */
+export interface VehicleModel {
+  id: number
+  manufacturer: string
+  model: string
+  batteryCapacityKwh: number
+  maxAcChargingPowerKw: number
+}

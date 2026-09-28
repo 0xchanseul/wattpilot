@@ -1,6 +1,6 @@
 import { apiRequest } from '@/lib/api-client'
 import type { PageResponse } from '@/types/api'
-import type { CreateEvInput, Ev, ListEvsParams, UpdateEvInput } from './types'
+import type { CreateEvInput, Ev, ListEvsParams, UpdateEvInput, VehicleModel } from './types'
 
 export function listEvs(params: ListEvsParams = {}): Promise<PageResponse<Ev>> {
   return apiRequest<PageResponse<Ev>>('/evs', {
@@ -22,4 +22,8 @@ export function updateEv(evId: number, input: UpdateEvInput): Promise<Ev> {
 
 export function deactivateEv(evId: number): Promise<void> {
   return apiRequest<void>(`/evs/${evId}`, { method: 'DELETE' })
+}
+
+export function listVehicleModels(query?: string): Promise<VehicleModel[]> {
+  return apiRequest<VehicleModel[]>('/vehicle-models', { query: { q: query } })
 }

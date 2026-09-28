@@ -14,9 +14,19 @@ import {
   FormMessage,
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { applyFieldErrors, errorMessage } from '@/lib/error-message'
+import { useVehicleModelsQuery } from '../queries'
 import { evFormSchema, toCreateEvInput, type EvFormValues } from '../schema'
 import type { CreateEvInput } from '../types'
+
+const MANUAL_ENTRY_VALUE = 'manual'
 
 const EV_FIELD_NAMES = [
   'name',
@@ -48,6 +58,21 @@ export function EvForm({ defaultValues, submitLabel, onSubmit, onCancel }: EvFor
     resolver: zodResolver(evFormSchema),
     defaultValues: { ...EMPTY, ...defaultValues },
   })
+  const { data: vehicleModels } = useVehicleModelsQuery()
+
+  const handleModelPick = (value: string) => {
+    if (value === MANUAL_ENTRY_VALUE) {
+      return
+    }
+    const preset = vehicleModels?.find((model) => String(model.id) === value)
+    if (!preset) {
+      return
+    }
+    form.setValue('manufacturer', preset.manufacturer, { shouldValidate: true })
+    form.setValue('model', preset.model, { shouldValidate: true })
+    form.setValue('batteryCapacityKwh', String(preset.batteryCapacityKwh), { shouldValidate: true })
+    form.setValue('maxAcChargingPowerKw', String(preset.maxAcChargingPowerKw), { shouldValidate: true })
+  }
 
   const handleSubmit = form.handleSubmit(async (values) => {
     try {
@@ -90,6 +115,31 @@ export function EvForm({ defaultValues, submitLabel, onSubmit, onCancel }: EvFor
             </FormItem>
           )}
         />
+
+        {vehicleModels && vehicleModels.length > 0 ? (
+          <FormItem>
+            <FormLabel>Model preset</FormLabel>
+            <Select onValueChange={handleModelPick}>
+              <FormControl>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select a model to prefill the specs below" />
+                </SelectTrigger>
+              </FormControl>
+              <SelectContent>
+                <SelectItem value={MANUAL_ENTRY_VALUE}>Not listed - enter manually</SelectItem>
+                {vehicleModels.map((preset) => (
+                  <SelectItem key={preset.id} value={String(preset.id)}>
+                    {preset.manufacturer} {preset.model}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <FormDescription>
+              Optional. Fills in manufacturer, model, battery and max AC charging power below - you can
+              still edit any of them afterward.
+            </FormDescription>
+          </FormItem>
+        ) : null}
 
         <div className="grid gap-6 sm:grid-cols-2">
           <FormField

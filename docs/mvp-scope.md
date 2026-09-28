@@ -29,7 +29,7 @@
 - **Charging efficiency:** V1 uses a system-level default value of `0.9`; it is not stored per EV.
 - **Profile update:** `defaultPriceArea` is only a client-side default. Every price lookup and charging plan request takes an explicit price area, so a V1 user is not blocked by the value chosen at sign-up.
 - **Vehicle Specification Master Data:** Obtaining comprehensive metadata may be practically difficult.
-- **V1.5:** Manually build presets for only 10–20 representative vehicle models.
+- **V1.5:** Manually build presets for a curated set of up to 30 representative vehicle models, chosen from actual Norwegian EV sales rankings.
 - **Unsupported vehicles:** Continue to use manual input.
 - **Full vehicle data:** Consider paid APIs or commercial data sources later if needed.
 - **Automatic vehicle account integration:** Review Enode, Smartcar, or manufacturer APIs in V2.

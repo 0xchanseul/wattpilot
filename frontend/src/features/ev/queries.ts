@@ -6,13 +6,26 @@ import {
 } from '@tanstack/react-query'
 
 import type { PageResponse } from '@/types/api'
-import { createEv, deactivateEv, getEv, listEvs, updateEv } from './api'
+import { createEv, deactivateEv, getEv, listEvs, listVehicleModels, updateEv } from './api'
 import type { CreateEvInput, Ev, ListEvsParams, UpdateEvInput } from './types'
 
 export const evKeys = {
   all: ['evs'] as const,
   list: (params: ListEvsParams) => ['evs', 'list', params] as const,
   detail: (evId: number) => ['evs', 'detail', evId] as const,
+}
+
+export const vehicleModelKeys = {
+  all: ['vehicle-models'] as const,
+}
+
+/** Presets for the EV registration form's model picker; the full list is small enough to fetch at once. */
+export function useVehicleModelsQuery() {
+  return useQuery({
+    queryKey: vehicleModelKeys.all,
+    queryFn: () => listVehicleModels(),
+    staleTime: Infinity,
+  })
 }
 
 export function useEvsQuery(

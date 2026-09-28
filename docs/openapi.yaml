@@ -232,6 +232,31 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /vehicle-models:
+    get:
+      tags: [EV]
+      summary: List curated vehicle spec presets
+      description: >-
+        Manually curated master data (V1.5): 10-20 representative EV models the create-EV form can use
+        to prefill manufacturer/model/battery/max AC charging power. Not paginated, no relationship to
+        `evs` - a preset only prefills the form, it does not become part of the created EV's record.
+        An unsupported vehicle is registered by typing its details manually instead.
+      operationId: listVehicleModels
+      parameters:
+        - name: q
+          in: query
+          description: Case-insensitive substring match against manufacturer or model. Omit to list all presets.
+          schema: { type: string }
+      responses:
+        '200':
+          description: Vehicle model presets, ordered by manufacturer then model
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/VehicleModel' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
   /electricity-prices:
     get:
       tags: [Electricity Price]
@@ -912,6 +937,19 @@ components:
             status: { $ref: '#/components/schemas/EvStatus' }
             createdAt: { type: string, format: date-time }
             updatedAt: { type: string, format: date-time }
+
+    VehicleModel:
+      type: object
+      required: [id, manufacturer, model, batteryCapacityKwh, maxAcChargingPowerKw]
+      description: >-
+        A curated preset (V1.5 master data). Deliberately excludes `defaultChargerPowerKw`: that field
+        describes the user's own home charger, not a vehicle spec.
+      properties:
+        id: { type: integer, format: int64, minimum: 1, example: 1 }
+        manufacturer: { type: string, example: Tesla }
+        model: { type: string, example: Model Y Long Range }
+        batteryCapacityKwh: { type: number, format: double, exclusiveMinimum: true, minimum: 0, example: 75 }
+        maxAcChargingPowerKw: { type: number, format: double, exclusiveMinimum: true, minimum: 0, maximum: 22, example: 11 }
 
     ElectricityPrice:
       type: object

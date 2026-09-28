@@ -111,6 +111,34 @@ Table evs {
   }
 }
 
+Table vehicle_models {
+  id bigint [pk, increment]
+  manufacturer varchar(100) [not null]
+  model varchar(100) [not null]
+  battery_capacity_kwh decimal(8,2) [not null]
+  max_ac_charging_power_kw decimal(8,2) [not null]
+  created_at timestamptz [not null]
+
+  note: '''
+    V1.5 master data: a manually curated list of up to 30 representative EV models (chosen from
+    actual Norwegian EV sales rankings), seeded by Flyway
+    and read-only at the application level. Used only to prefill the EV registration form
+    (manufacturer, model, batteryCapacityKwh, maxAcChargingPowerKw) - there is no foreign key from
+    evs to this table, so it can be edited or re-seeded later without touching already-registered
+    EVs. defaultChargerPowerKw is never sourced from here: it depends on the user's own home
+    charger, not the vehicle.
+  '''
+
+  Indexes {
+    (manufacturer, model) [unique]
+  }
+
+  checks {
+    `battery_capacity_kwh > 0` [name: 'vehicle_model_battery_capacity_positive']
+    `max_ac_charging_power_kw > 0 AND max_ac_charging_power_kw <= 22` [name: 'vehicle_model_max_ac_charging_power_valid']
+  }
+}
+
 Table electricity_prices {
   id bigint [pk, increment]
   provider price_provider [not null, default: 'HVA_KOSTER_STROMMEN']
