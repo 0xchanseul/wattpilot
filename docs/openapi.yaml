@@ -125,6 +125,24 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/User' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+    patch:
+      tags: [Auth]
+      summary: Update current user's profile
+      description: Partial update. Only `name` and `defaultPriceArea` may be changed; email and password are not part of this endpoint.
+      operationId: updateCurrentUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateUserRequest' }
+      responses:
+        '200':
+          description: Current user updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
 
   /evs:
     get:
@@ -853,6 +871,13 @@ components:
         status: { $ref: '#/components/schemas/UserStatus' }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
+
+    UpdateUserRequest:
+      type: object
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        defaultPriceArea: { $ref: '#/components/schemas/PriceArea' }
 
     CreateEvRequest:
       type: object

@@ -14,6 +14,11 @@ export interface SignUpInput {
   defaultPriceArea: PriceArea
 }
 
+export interface UpdateProfileInput {
+  name?: string
+  defaultPriceArea?: PriceArea
+}
+
 /** Response of POST /auth/signup and POST /auth/login. The refresh token is not here — it is set
  *  as an HttpOnly cookie on the same response. */
 export interface AuthResponse {

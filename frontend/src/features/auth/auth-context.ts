@@ -1,6 +1,6 @@
 import { createContext } from 'react'
 import type { User } from '@/types/api'
-import type { LoginInput, SignUpInput } from './types'
+import type { LoginInput, SignUpInput, UpdateProfileInput } from './types'
 
 export type AuthStatus = 'loading' | 'authenticated' | 'unauthenticated'
 
@@ -10,6 +10,7 @@ export interface AuthContextValue {
   login: (input: LoginInput) => Promise<void>
   signUp: (input: SignUpInput) => Promise<void>
   logout: () => Promise<void>
+  updateProfile: (input: UpdateProfileInput) => Promise<User>
 }
 
 export const AuthContext = createContext<AuthContextValue | null>(null)

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router'
-import { LogOutIcon } from 'lucide-react'
+import { LogOutIcon, UserIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
@@ -72,13 +72,22 @@ export function AppLayout() {
 
           <div className="flex min-w-0 items-center gap-3">
             {user ? (
-              <div className="hidden min-w-0 items-center gap-2 sm:flex" title={user.email}>
+              <Link
+                to="/profile"
+                className="hover:bg-muted/60 flex min-w-0 items-center gap-2 rounded-full p-1 pr-3 transition-colors max-sm:hidden"
+                title={user.email}
+              >
                 <span className="bg-aurora-gradient text-fjord flex size-8 shrink-0 items-center justify-center rounded-full text-sm font-semibold">
                   {user.name.charAt(0).toUpperCase()}
                 </span>
                 <span className="truncate text-sm font-medium">{user.name}</span>
-              </div>
+              </Link>
             ) : null}
+            <Button variant="outline" size="icon" className="sm:hidden" asChild>
+              <Link to="/profile" aria-label="Profile">
+                <UserIcon />
+              </Link>
+            </Button>
             <Button
               variant="outline"
               size="icon"

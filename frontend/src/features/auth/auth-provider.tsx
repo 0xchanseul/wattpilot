@@ -10,8 +10,9 @@ import {
   login as loginRequest,
   logout as logoutRequest,
   signUp as signUpRequest,
+  updateProfile as updateProfileRequest,
 } from './api'
-import type { LoginInput, SignUpInput } from './types'
+import type { LoginInput, SignUpInput, UpdateProfileInput } from './types'
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient()
@@ -80,9 +81,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [queryClient])
 
+  const updateProfile = useCallback(async (input: UpdateProfileInput) => {
+    const updated = await updateProfileRequest(input)
+    setUser(updated)
+    return updated
+  }, [])
+
   const value = useMemo<AuthContextValue>(
-    () => ({ status, user, login, signUp, logout }),
-    [status, user, login, signUp, logout],
+    () => ({ status, user, login, signUp, logout, updateProfile }),
+    [status, user, login, signUp, logout, updateProfile],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

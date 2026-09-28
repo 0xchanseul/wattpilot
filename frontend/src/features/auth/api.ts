@@ -1,6 +1,6 @@
 import { apiRequest } from '@/lib/api-client'
 import type { User } from '@/types/api'
-import type { AuthResponse, LoginInput, SignUpInput } from './types'
+import type { AuthResponse, LoginInput, SignUpInput, UpdateProfileInput } from './types'
 
 export function signUp(input: SignUpInput): Promise<AuthResponse> {
   return apiRequest<AuthResponse>('/auth/signup', { method: 'POST', body: input, withAuth: false })
@@ -16,4 +16,8 @@ export function logout(): Promise<void> {
 
 export function fetchCurrentUser(): Promise<User> {
   return apiRequest<User>('/users/me')
+}
+
+export function updateProfile(input: UpdateProfileInput): Promise<User> {
+  return apiRequest<User>('/users/me', { method: 'PATCH', body: input })
 }

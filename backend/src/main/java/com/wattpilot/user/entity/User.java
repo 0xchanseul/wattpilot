@@ -76,4 +76,17 @@ public class User {
     public boolean isActive() {
         return status == UserStatus.ACTIVE;
     }
+
+    /**
+     * Applies a partial update: only non-null arguments overwrite the current value, so an absent
+     * field in a PATCH request leaves the stored value untouched.
+     */
+    public void updateProfile(String name, PriceArea defaultPriceArea) {
+        if (name != null) {
+            this.name = name;
+        }
+        if (defaultPriceArea != null) {
+            this.defaultPriceArea = defaultPriceArea;
+        }
+    }
 }

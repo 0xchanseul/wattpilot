@@ -3,6 +3,7 @@ package com.wattpilot.user.service;
 import com.wattpilot.common.PriceArea;
 import com.wattpilot.common.exception.BusinessException;
 import com.wattpilot.common.exception.ErrorCode;
+import com.wattpilot.user.dto.UpdateUserRequest;
 import com.wattpilot.user.entity.User;
 import com.wattpilot.user.repository.UserRepository;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -53,6 +54,18 @@ public class UserService {
     public User getById(Long userId) {
         return userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+    }
+
+    @Transactional
+    public User updateProfile(Long userId, UpdateUserRequest request) {
+        User user = getById(userId);
+        user.updateProfile(trimOrNull(request.name()), request.defaultPriceArea());
+        // Flush so the @UpdateTimestamp is populated before the response is built.
+        return userRepository.saveAndFlush(user);
+    }
+
+    private static String trimOrNull(String value) {
+        return value != null ? value.trim() : null;
     }
 
     /**
