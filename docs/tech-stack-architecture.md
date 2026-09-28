@@ -184,7 +184,7 @@ ChargingExecutionService     (com.wattpilot.charging.service — one schedule id
         ↓
 ChargingExecutionPort        (interface)
         ↓
-MockChargingAdapter          // V1, succeeds unless a failure is injected by config
+MockChargingAdapter          // V1, random-rate failure by default, or a config-pinned outcome
         ↓
 Manufacturer APIs            // Future
 ```
@@ -209,7 +209,12 @@ Concurrency (a scheduler tick racing a user's cancel request, or two ticks touch
 
 On a successful completion, `actualEnergyKwh` / `actualCostNok` / `baselineCostNok` / `optimizedCostNok` / `estimatedSavingsNok` are derived from the **plan/slot snapshot taken at confirmation time** — never a fresh price lookup or a re-run of the optimizer. V1 mock charging always finishes exactly as planned, so there is no partial-charge simulation.
 
-`MockChargingAdapter` always succeeds unless a schedule id is listed in `wattpilot.charging.execution.mock.failures` (empty in every committed profile). That map assigns a `ChargingFailureCode` to a schedule so demos and integration tests can drive a specific `FAILED` outcome or the retry path deterministically — `SYSTEM_ERROR` makes the adapter throw (exercising the bounded retry), the others return a business failure on their phase. See `docs/charging-execution-states.md` §7.
+`MockChargingAdapter` has two failure mechanisms, in order of precedence:
+
+- **Deterministic, config-pinned** — a schedule id listed in `wattpilot.charging.execution.mock.failures` (empty in every committed profile) always produces that exact `ChargingFailureCode`, on its phase, regardless of the random rate below. Lets a demo or integration test drive a specific `FAILED` outcome or the retry path deterministically — `SYSTEM_ERROR` makes the adapter throw (exercising the bounded retry), the others return a business failure.
+- **Random, rate-based** — for any schedule with no pinned entry, `wattpilot.charging.execution.mock.random-failure-enabled` (default `true` outside the `local` profile) gives it a `random-failure-rate` (default `0.10`) chance of ending `FAILED` overall instead of always succeeding, so demo/history data is not artificially perfect. The rate is per **session**, not per phase: since a schedule that fails at start never reaches completion, the adapter derives a lower per-phase roll `p = 1 - sqrt(1 - rate)` so the two chances a session gets to fail (start, then completion) add up to the configured rate rather than compounding past it. The failure code is chosen uniformly among the codes valid for whichever phase it lands on (`CHARGER_UNAVAILABLE` / `VEHICLE_DISCONNECTED` / `START_REJECTED` at start, `CHARGING_INTERRUPTED` at completion) — `SYSTEM_ERROR` is never picked at random, since throwing instead of returning a failure would turn "occasionally fails" into "occasionally takes several retries to fail."
+
+See `docs/charging-execution-states.md` §7.
 
 `GET /charging-schedules/{scheduleId}` and the list endpoint embed the schedule's `ChargingSessionSummary` (null until the first execution attempt) — there is no user-facing Mock Charging API in V1; execution is only ever driven by the scheduler.
 

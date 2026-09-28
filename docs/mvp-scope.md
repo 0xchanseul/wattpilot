@@ -7,7 +7,7 @@
 | Optimal Charging Time Calculation | ✅ |  |  | Core feature | Continuous charging window only; preview returns up to 3 candidates and persists nothing |
 | Charging Reservation | ✅ |  |  | Scheduler | The user confirms one previewed candidate; only that candidate is stored as plan + slots + schedule. A reservation can be cancelled only while still `WAITING`. `GET /charging-schedules` is an overview (`upcoming` / `inProgress` / `recentActivity` — last 5 finished), not a long history. |
 | Actual EV Control | ❌ |  |  | Use Mock |  |
-| Mock Charging | ✅ |  |  | Used instead of actual devices | Triggered internally by a 1-minute execution scheduler, not by a user-facing API; always succeeds unless a failure is injected by config for a demo or test |
+| Mock Charging | ✅ |  |  | Used instead of actual devices | Triggered internally by a 1-minute execution scheduler, not by a user-facing API; a configurable random rate (10% by default, per session) makes some reservations fail instead of always succeeding, and a schedule id can still be pinned to an exact outcome via config for a deterministic demo or test |
 | Charging History | ✅ |  |  | `GET /charging-history`, `GET /charging-history/{sessionId}` | Read model over `charging_sessions`/`charging_schedules`/`charging_plans` (no new table). COMPLETED/FAILED only, newest first, with a realized-savings `summary` header. Detail is a "charging receipt": conditions + plan + per-hour breakdown + realized outcome. |
 | Savings Calculation | ✅ |  |  |  |  |
 | Tibber API |  | ✅ |  |  | Support personalization through Tibber API integration |

@@ -164,17 +164,68 @@ backoff state.
 - **No user-facing Mock Charging API.** The scheduler calls `ChargingExecutionService` in-process; there
   is no `/mock-charging/*` HTTP surface. Clients see the outcome through
   `ChargingSchedule.session` (`ChargingSessionSummary` in the API, null until the first attempt).
-- **Failures are opt-in, not random.** `MockChargingAdapter` always succeeds unless a schedule id is
-  explicitly listed in the failure-injection config (§7). V1 has no probabilistic failure rate — a
-  demo or test decides exactly which reservation fails and how.
+- **Failures are random by default, with a deterministic override.** `MockChargingAdapter` gives every
+  unconfigured schedule a random, per-session chance of `FAILED` instead of always succeeding, so
+  history/savings data does not look artificially perfect. A schedule id explicitly listed in the
+  failure-injection config always overrides the random roll, for a demo or test that needs to decide
+  exactly which reservation fails and how. See §7.
 
 ---
 
-## 7. Simulating failures (demo / test)
+## 7. Simulating failures
 
-`MockChargingAdapter` succeeds for every schedule by default. To exercise the `FAILED` states, the
-retry/backoff path, or the failure UI without a real charger, list a `charging_schedules` id under
-`wattpilot.charging.execution.mock.failures` (bound by `MockChargingProperties`):
+`MockChargingAdapter` has two failure mechanisms (`MockChargingProperties`), checked in this order for
+every schedule with no session yet:
+
+1. **Deterministic, config-pinned** (`wattpilot.charging.execution.mock.failures`) — always wins when
+   present for a schedule id.
+2. **Random, rate-based** (`wattpilot.charging.execution.mock.random-failure-enabled` /
+   `random-failure-rate`) — applies only when no pinned entry exists for that schedule id.
+
+There is no HTTP endpoint and no persistence for either — both are config only.
+
+### 7.1 Random failure (the default, on outside `local`)
+
+```yaml
+wattpilot:
+  charging:
+    execution:
+      mock:
+        random-failure-enabled: true   # default true outside application-local.yml
+        random-failure-rate: 0.10      # default 0.10; probability a whole SESSION ends FAILED
+```
+
+`random-failure-rate` is a **per-session** probability, not a per-phase one. A schedule gets up to two
+chances to fail — start, then (only if start succeeded) completion — and since a schedule that fails at
+start never reaches completion, rolling the configured rate independently at both phases would compound
+past it (a configured "10%" would make a session ~19% likely to fail overall: `1 - 0.9 x 0.9`). Instead
+`MockChargingAdapter` derives the lower probability `p` actually rolled at each phase by solving
+`1 - (1 - p)^2 = rate` for `p`, i.e. `p = 1 - sqrt(1 - rate)` (`~5.13%` per phase for the 10% default),
+so "fails at least once across the two rolls" lands on the configured session-level rate.
+
+When a roll fails, the `ChargingFailureCode` is picked uniformly among the codes valid for whichever
+phase is executing:
+
+| Phase | Candidate codes |
+|---|---|
+| start | `CHARGER_UNAVAILABLE`, `VEHICLE_DISCONNECTED`, `START_REJECTED` |
+| completion | `CHARGING_INTERRUPTED` |
+
+`SYSTEM_ERROR` is never picked at random: it requires the adapter to *throw* rather than return a
+failure outcome, which would send the schedule through the retry/backoff path (§5) before finalizing —
+turning "occasionally fails" into "occasionally takes several retries to fail," a different and
+confusing behavior for what is meant to just look like ordinary occasional failure. The `failure_reason`
+for a random failure is the same fixed, generic sentence per code as the deterministic path below.
+
+Off by default in `application-local.yml` (local dev and the test suite, which run under the `local`
+profile unless `SPRING_PROFILES_ACTIVE` is set) — this keeps existing happy-path tests' deterministic
+success assumption without a per-test override. See `.env.example` to enable it locally.
+
+### 7.2 Deterministic failure injection (demo / test)
+
+To exercise the `FAILED` states, the retry/backoff path, or the failure UI for one *specific*
+reservation regardless of the random rate above, list a `charging_schedules` id under
+`wattpilot.charging.execution.mock.failures`:
 
 ```yaml
 wattpilot:
@@ -201,6 +252,5 @@ was never executed, which the adapter has no part in. To see it, simply let a `W
 window close before its start time is reached (or with the scheduler disabled).
 
 The injected `failure_reason` for a business failure is a fixed, generic sentence per code; the
-`SYSTEM_ERROR` reason is the same generic sentence `ChargingExecutionService` always uses. The config
-is empty in every committed profile — it is a per-environment / per-run override, not a product
-feature, so there is no HTTP endpoint and no persistence for it.
+`SYSTEM_ERROR` reason is the same generic sentence `ChargingExecutionService` always uses. This map is
+empty in every committed profile — it is a per-environment / per-run override, not a product feature.
