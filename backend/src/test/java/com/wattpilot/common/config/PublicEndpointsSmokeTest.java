@@ -8,6 +8,7 @@ import com.wattpilot.charging.repository.ChargingSessionRepository;
 import com.wattpilot.dashboard.repository.DashboardRepository;
 import com.wattpilot.electricity.repository.ElectricityPriceRepository;
 import com.wattpilot.ev.repository.EvRepository;
+import com.wattpilot.ev.repository.VehicleConnectionRepository;
 import com.wattpilot.ev.repository.VehicleModelRepository;
 import com.wattpilot.history.repository.ChargingHistoryRepository;
 import com.wattpilot.savings.repository.SavingsRepository;
@@ -59,6 +60,9 @@ class PublicEndpointsSmokeTest {
 
     @MockitoBean
     VehicleModelRepository vehicleModelRepository;
+
+    @MockitoBean
+    VehicleConnectionRepository vehicleConnectionRepository;
 
     @MockitoBean
     ElectricityPriceRepository electricityPriceRepository;

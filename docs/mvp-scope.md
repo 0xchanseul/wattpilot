@@ -10,9 +10,9 @@
 | Mock Charging | ✅ |  |  | Used instead of actual devices | Triggered internally by a 1-minute execution scheduler, not by a user-facing API; a configurable random rate (10% by default, per session) makes some reservations fail instead of always succeeding, and a schedule id can still be pinned to an exact outcome via config for a deterministic demo or test |
 | Charging History | ✅ |  |  | `GET /charging-history`, `GET /charging-history/{sessionId}` | Read model over `charging_sessions`/`charging_schedules`/`charging_plans` (no new table). COMPLETED/FAILED only, newest first, with a realized-savings `summary` header. Detail is a "charging receipt": conditions + plan + per-hour breakdown + realized outcome. |
 | Savings Calculation | ✅ |  |  |  |  |
-| Tibber API |  | ✅ |  |  | Support personalization through Tibber API integration |
+| Vehicle Telemetry (read-only) |  | ✅ |  | Optional Smartcar connection per EV | Live battery %, range, plug/charging status via Smartcar API v3, requesting only `read_battery`/`read_charge`. Replaces the originally-planned Tibber integration (see TODO.md, not tracked by Git, section 3.3). Never affects charging execution - Mock Charging remains the only execution path |
 | Vehicle Specification Master Data |  | ✅ |  | Build master data for vehicle specifications | Automatically display vehicle specifications when the user selects only the vehicle model |
-| Manufacturer Integration |  |  | ✅ | Vehicle manufacturer integration | Support integration with vehicle manufacturers through OAuth |
+| Manufacturer Integration (control) |  |  | ✅ | Vehicle manufacturer control integration | Actual charge start/stop commands through supported vehicle manufacturers via OAuth. Read-only telemetry is already covered above (V1.5) |
 | Notifications |  |  | ✅ |  |  |
 | Washing Machine |  |  | ✅ |  |  |
 | Dishwasher |  |  | ✅ |  |  |
@@ -32,4 +32,9 @@
 - **V1.5:** Manually build presets for a curated set of up to 30 representative vehicle models, chosen from actual Norwegian EV sales rankings.
 - **Unsupported vehicles:** Continue to use manual input.
 - **Full vehicle data:** Consider paid APIs or commercial data sources later if needed.
-- **Automatic vehicle account integration:** Review Enode, Smartcar, or manufacturer APIs in V2.
+- **Automatic vehicle account integration:** Smartcar (read-only) adopted in V1.5 - see the Vehicle
+  Telemetry row above. Real vehicle *control* through a manufacturer or aggregator API remains V2.
+
+## Considered but excluded
+
+- **Tibber integration:** replaced by the read-only Smartcar telemetry feature above.

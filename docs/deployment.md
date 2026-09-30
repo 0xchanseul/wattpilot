@@ -655,6 +655,38 @@ POSTGRES_PORT
 Production secrets live in `/etc/wattpilot/wattpilot.env` on the VM (never committed) — see
 "Production Architecture (Azure)" → "Files" above.
 
+## Smartcar vehicle telemetry (V1.5, optional)
+
+Off by default everywhere (`SMARTCAR_ENABLED` defaults to false). Only needed if you want to
+exercise the read-only vehicle-connection feature; charging itself never depends on it. See
+TODO.md (not tracked by Git), section 3.3, for why this replaced the originally-planned Tibber
+integration.
+
+1. Create a free app at [dashboard.smartcar.com](https://dashboard.smartcar.com) (no credit card
+   required).
+2. Under Vehicle Access, select only `read_battery` and `read_charge` — never `control_charge`.
+   Charging execution stays on Mock Charging regardless of this feature; requesting a control
+   permission here would not do anything on the backend, since `SmartcarClient` never calls a
+   command endpoint.
+3. Register the redirect URI exactly as WattPilot's frontend origin plus
+   `/vehicle-connections/callback`:
+   - Local: `http://localhost:5173/vehicle-connections/callback`
+   - Production: `https://www.wattpilot.dev/vehicle-connections/callback`
+4. Set these variables (local: root `.env`, see `.env.example`; production: append to
+   `/etc/wattpilot/wattpilot.env` on the VM, then `docker compose up -d` to pick them up — see
+   `deploy/azure/.env.example`):
+   ```
+   SMARTCAR_ENABLED=true
+   SMARTCAR_CLIENT_ID=...
+   SMARTCAR_CLIENT_SECRET=...
+   SMARTCAR_APPLICATION_ID=...
+   SMARTCAR_REDIRECT_URI=...   # exactly the URI registered in step 3
+   SMARTCAR_MODE=simulated     # or "live" for a real vehicle account
+   ```
+5. Use `mode=simulated` (the default) to test end-to-end with Smartcar's vehicle simulator, with no
+   real car needed - Smartcar Connect accepts any email/password in this mode and returns 2+
+   simulated vehicles.
+
 # Monitoring & Logging
 
 V1 uses a lightweight monitoring setup.

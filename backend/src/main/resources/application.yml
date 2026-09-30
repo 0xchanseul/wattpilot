@@ -96,6 +96,18 @@ wattpilot:
       connect-timeout: ${HVA_KOSTER_STROMMEN_CONNECT_TIMEOUT:3s}
       read-timeout: ${HVA_KOSTER_STROMMEN_READ_TIMEOUT:5s}
 
+    smartcar:
+      # Read-only vehicle telemetry (V1.5, see docs/mvp-scope.md). Off by default in every profile:
+      # turn on only after creating a Smartcar dashboard app (see docs/deployment.md). Charging
+      # execution never depends on this - it stays on the Mock path regardless.
+      enabled: ${SMARTCAR_ENABLED:false}
+      client-id: ${SMARTCAR_CLIENT_ID:}
+      client-secret: ${SMARTCAR_CLIENT_SECRET:}
+      application-id: ${SMARTCAR_APPLICATION_ID:}
+      redirect-uri: ${SMARTCAR_REDIRECT_URI:}
+      # "simulated" everywhere except a deliberate manual live test against a real vehicle account.
+      mode: ${SMARTCAR_MODE:simulated}
+
   security:
     jwt:
       # Base64-encoded HS256 key of at least 32 bytes. Supplied per environment;

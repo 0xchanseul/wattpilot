@@ -42,6 +42,9 @@ class EvServiceTest {
     @Mock
     private EvRepository evRepository;
 
+    @Mock
+    private VehicleConnectionRemover vehicleConnectionRemover;
+
     @InjectMocks
     private EvService evService;
 
@@ -131,6 +134,16 @@ class EvServiceTest {
         evService.deactivate(USER_ID, EV_ID);
 
         assertThat(ev.getStatus()).isEqualTo(EvStatus.INACTIVE);
+    }
+
+    @Test
+    void deactivateAlsoRemovesAnyVehicleConnectionSoAHiddenEvNeverKeepsALiveLink() {
+        Ev ev = activeEv();
+        when(evRepository.findByIdAndUserId(EV_ID, USER_ID)).thenReturn(Optional.of(ev));
+
+        evService.deactivate(USER_ID, EV_ID);
+
+        verify(vehicleConnectionRemover).removeIfLinked(EV_ID);
     }
 
     @Test

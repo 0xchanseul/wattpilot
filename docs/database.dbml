@@ -1,6 +1,5 @@
 // WattPilot Database Schema
-// Target: V1 MVP
-// Designed with V1.5 (Tibber) extension in mind.
+// Target: V1 MVP, with V1.5 (vehicle_models, vehicle_connections) implemented.
 // V2 smart-home devices should be introduced by refactoring rather than premature abstraction.
 
 Enum user_status {
@@ -136,6 +135,40 @@ Table vehicle_models {
   checks {
     `battery_capacity_kwh > 0` [name: 'vehicle_model_battery_capacity_positive']
     `max_ac_charging_power_kw > 0 AND max_ac_charging_power_kw <= 22` [name: 'vehicle_model_max_ac_charging_power_valid']
+  }
+}
+
+Table vehicle_connections {
+  id bigint [pk, increment]
+  user_id bigint [not null, ref: > users.id]
+  ev_id bigint [not null, ref: > evs.id]
+  smartcar_user_id varchar(64) [not null, note: 'Smartcar user_id from the Connect redirect, not a WattPilot id']
+  smartcar_vehicle_id varchar(64) [not null]
+  smartcar_connection_id varchar(64) [not null, note: 'Used only to call DELETE /v3/connections/{id} on disconnect']
+  vehicle_make varchar(100)
+  vehicle_model varchar(100)
+  vehicle_year integer
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  note: '''
+    V1.5 read-only vehicle telemetry (replaces the originally-planned Tibber integration; see
+    TODO.md, not tracked by Git, section 3.3 for the full decision and reasoning). Links exactly one
+    EV to one Smartcar vehicle so the EV detail page can display live battery/charging status.
+
+    No OAuth token of any kind is stored here: Smartcar API v3 uses a single application-level
+    access token (client_credentials), scoped per request by smartcar_user_id via the sc-user-id
+    header, not per-vehicle tokens - so there is nothing secret to encrypt or refresh in this table.
+
+    Deliberately does not affect charging execution or optimization: Mock Charging keeps simulating
+    its own progress in charging_sessions regardless of this table, and the two are never
+    cross-referenced. A mismatch between this table's live-read data and a session's simulated
+    progress is expected, not a bug.
+  '''
+
+  Indexes {
+    ev_id [unique]
+    (user_id, smartcar_vehicle_id) [unique]
   }
 }
 
@@ -367,87 +400,19 @@ Table charging_sessions {
 }
 
 // -------------------------
-// V1.5 candidate extension
+// V1.5, implemented
 // -------------------------
-// Add only when vehicle master data or Tibber integration is implemented.
-//
-// Table vehicle_models {
-//   id bigint [pk, increment]
-//   manufacturer varchar(100) [not null]
-//   model varchar(100) [not null]
-//   variant varchar(100)
-//   model_year int
-//   battery_capacity_kwh decimal(8,2) [not null]
-//   max_ac_charging_power_kw decimal(8,2) [not null]
-//   created_at timestamptz [not null]
-//   updated_at timestamptz [not null]
-//
-//   Indexes {
-//     (manufacturer, model, variant, model_year) [unique]
-//   }
-//
-//   checks {
-//     `battery_capacity_kwh > 0` [name: 'vehicle_model_battery_capacity_positive']
-//     `max_ac_charging_power_kw > 0` [name: 'vehicle_model_charging_power_positive']
-//   }
-// }
-//
-// Add a nullable reference to evs:
-// vehicle_model_id bigint [ref: > vehicle_models.id]
-//
-// Keep evs.battery_capacity_kwh, evs.max_ac_charging_power_kw, and
-// evs.default_charger_power_kw as the V1 inputs/snapshots used by the optimizer.
-// This supports manual V1 entries and later vehicle-model presets.
-//
-// Table integration_accounts {
-//   id bigint [pk, increment]
-//   user_id bigint [not null]
-//   provider varchar(50) [not null, note: 'e.g. TIBBER']
-//   external_account_id varchar(255)
-//   access_token_encrypted text
-//   refresh_token_encrypted text
-//   token_expires_at timestamptz
-//   created_at timestamptz [not null]
-//   updated_at timestamptz [not null]
-//
-//   Indexes {
-//     (user_id, provider) [unique]
-//   }
-// }
-//
-// Ref: integration_accounts.user_id > users.id
-//
-// Tibber prices may be personalized per account. Do not store personalized
-// prices under the V1 public-price unique key alone. When implemented, either
-// associate them with integration_account_id using a separate table or add an
-// account-scoped key with PostgreSQL partial unique indexes.
+// vehicle_models (curated EV spec presets) and vehicle_connections (read-only Smartcar telemetry,
+// replacing the originally-planned Tibber integration) are both implemented above. See TODO.md
+// (not tracked by Git), section 3.3, for the Tibber-to-Smartcar decision and reasoning, and the
+// vehicle_connections table's own note above for why no token/credential columns are needed.
 
 // -------------------------
 // V2 refactoring direction
 // -------------------------
-// Manufacturer OAuth connections should be stored separately from evs.
-//
-// Table vehicle_connections {
-//   id bigint [pk, increment]
-//   user_id bigint [not null]
-//   ev_id bigint [not null]
-//   provider varchar(50) [not null, note: 'e.g. TESLA, BMW, HYUNDAI']
-//   external_vehicle_id varchar(255) [not null]
-//   access_token_encrypted text
-//   refresh_token_encrypted text
-//   token_expires_at timestamptz
-//   connection_status varchar(50) [not null]
-//   created_at timestamptz [not null]
-//   updated_at timestamptz [not null]
-//
-//   Indexes {
-//     (user_id, provider, external_vehicle_id) [unique]
-//     ev_id
-//   }
-// }
-//
-// Ref: vehicle_connections.user_id > users.id
-// Ref: vehicle_connections.ev_id > evs.id
+// Real vehicle *control* (start/stop charging commands, not just read-only telemetry) remains V2
+// scope. If added, it most likely extends vehicle_connections with a scope/permission marker rather
+// than a new table, since the connection identity itself does not change between read and control.
 //
 // When smart-home devices are actually introduced,
 // consider extracting EV-specific ownership into a generalized device model:

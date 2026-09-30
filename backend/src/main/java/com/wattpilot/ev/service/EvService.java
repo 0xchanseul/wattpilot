@@ -23,9 +23,11 @@ import org.springframework.transaction.annotation.Transactional;
 public class EvService {
 
     private final EvRepository evRepository;
+    private final VehicleConnectionRemover vehicleConnectionRemover;
 
-    public EvService(EvRepository evRepository) {
+    public EvService(EvRepository evRepository, VehicleConnectionRemover vehicleConnectionRemover) {
         this.evRepository = evRepository;
+        this.vehicleConnectionRemover = vehicleConnectionRemover;
     }
 
     @Transactional
@@ -104,6 +106,8 @@ public class EvService {
     @Transactional
     public void deactivate(Long userId, Long evId) {
         getOwnedEv(userId, evId).deactivate();
+        // A deactivated EV must never keep a live Smartcar link (see VehicleConnectionRemover).
+        vehicleConnectionRemover.removeIfLinked(evId);
     }
 
     private Ev getOwnedEv(Long userId, Long evId) {

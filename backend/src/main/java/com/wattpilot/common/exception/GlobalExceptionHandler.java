@@ -42,7 +42,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
      * where it can end up in browser consoles, proxy logs and error trackers.
      */
     private static final Set<String> SENSITIVE_FIELD_NAMES = Set.of("password", "currentpassword",
-            "newpassword", "passwordconfirmation", "token", "accesstoken", "refreshtoken", "secret");
+            "newpassword", "passwordconfirmation", "token", "accesstoken", "refreshtoken", "secret", "state");
 
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ErrorResponse> handleBusinessException(BusinessException ex, HttpServletRequest request) {

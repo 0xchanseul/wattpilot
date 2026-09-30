@@ -56,7 +56,18 @@ public enum ErrorCode {
     CHARGING_SCHEDULE_CONFLICT(HttpStatus.CONFLICT, "This EV already has a charging schedule that overlaps the selected window."),
 
     // The schedule is no longer in WAITING (already started, already finished, or already cancelled).
-    CHARGING_SCHEDULE_NOT_CANCELLABLE(HttpStatus.CONFLICT, "This charging schedule can no longer be cancelled.");
+    CHARGING_SCHEDULE_NOT_CANCELLABLE(HttpStatus.CONFLICT, "This charging schedule can no longer be cancelled."),
+
+    // Read-only Smartcar vehicle telemetry (V1.5). A missing link, or one owned by another account,
+    // is reported the same way so the API cannot be used to probe which EVs have a connection.
+    VEHICLE_CONNECTION_NOT_FOUND(HttpStatus.NOT_FOUND, "This EV has no connected vehicle."),
+    VEHICLE_ALREADY_CONNECTED(HttpStatus.CONFLICT, "This EV already has a connected vehicle."),
+    // The Connect state is missing, expired, tampered, or was issued for a different user/EV.
+    INVALID_VEHICLE_CONNECT_STATE(HttpStatus.BAD_REQUEST, "The vehicle connection request is invalid or has expired. Start over."),
+    // Smartcar itself failed or timed out (transport-level, not a business rule).
+    VEHICLE_PROVIDER_UNAVAILABLE(HttpStatus.BAD_GATEWAY, "The vehicle data provider is temporarily unavailable."),
+    // wattpilot.integration.smartcar.enabled=false in this environment.
+    VEHICLE_PROVIDER_NOT_CONFIGURED(HttpStatus.SERVICE_UNAVAILABLE, "Vehicle telemetry is not configured in this environment.");
 
     private final HttpStatus status;
     private final String defaultMessage;

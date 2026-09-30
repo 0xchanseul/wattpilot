@@ -67,8 +67,8 @@ Direct control of real EVs is intentionally excluded from V1. Instead, a Mock ch
 
 WattPilot is designed to gradually expand beyond EV charging.
 
-**V1.5** will introduce Tibber API integration to provide more personalized electricity services. It will also include vehicle specification master data, allowing users to select their EV model and automatically retrieve information such as battery capacity and charging speed.
+**V1.5** introduces an optional, read-only Smartcar vehicle connection per EV, showing the real vehicle's live battery level, range, and charging/plug status - independent of Mock Charging's own simulated progress. It replaces the originally-planned Tibber integration (Tibber's real data cannot be tested outside Norway; see TODO.md, not tracked by Git, section 3.3). It also includes vehicle specification master data, allowing users to select their EV model and automatically retrieve information such as battery capacity and charging speed.
 
-**V2** will introduce OAuth-based integration with supported vehicle manufacturers such as Tesla, BMW, and Hyundai. It will also expand the platform with notifications, smart home integration, and scheduling support for additional appliances such as washing machines and dishwashers.
+**V2** will introduce actual vehicle control - start/stop charging commands - through supported vehicle manufacturers such as Tesla, BMW, and Hyundai. It will also expand the platform with notifications, smart home integration, and scheduling support for additional appliances such as washing machines and dishwashers.
 
 The long-term goal is to evolve WattPilot into a broader **smart energy management platform** that automatically shifts electricity consumption to more cost-efficient periods.

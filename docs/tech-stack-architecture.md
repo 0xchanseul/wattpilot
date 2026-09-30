@@ -1,6 +1,6 @@
 # Overview
 
-WattPilot V1 will use a **modular monolith** architecture with a separate React frontend, Spring Boot backend, and PostgreSQL database. The goal is to keep the MVP simple while maintaining clear domain boundaries and allowing future integrations such as Tibber and vehicle manufacturer APIs.
+WattPilot V1 will use a **modular monolith** architecture with a separate React frontend, Spring Boot backend, and PostgreSQL database. The goal is to keep the MVP simple while maintaining clear domain boundaries and allowing future integrations such as additional price sources and vehicle manufacturer APIs.
 
 # Tech Stack
 
@@ -68,9 +68,9 @@ ElectricityPriceProvider
 HvaKosterStrommenClient
 ```
 
-The provider interface should allow future implementations such as Tibber without changing the core charging optimization logic.
+The provider interface should allow future price-source implementations without changing the core charging optimization logic.
 
-Vehicle control follows the same approach.
+Vehicle *control* follows the same approach:
 
 ```text
 VehicleController
@@ -80,7 +80,29 @@ MockVehicleController   // V1
 Manufacturer APIs       // Future
 ```
 
-V1 uses Mock charging only. Real vehicle control is intentionally excluded.
+V1/V1.5 use Mock charging only for execution. Real vehicle control is intentionally excluded until V2.
+
+## External vehicle telemetry (V1.5, read-only)
+
+A separate, read-only concern from vehicle control above: `integration.smartcar.SmartcarClient`
+talks to Smartcar API v3 (application-level access token, no per-vehicle OAuth tokens) to read a
+connected vehicle's battery/range/charging signals. `ev.service.VehicleConnectionService`
+orchestrates the Connect flow and owns the `vehicle_connections` link (see docs/database.dbml).
+
+```text
+VehicleConnectionController
+        ↓
+VehicleConnectionService
+        ↓
+SmartcarClient   // integration.smartcar - only implementation, no provider interface
+```
+
+No `VehicleProvider`-style interface was introduced here, unlike the electricity price provider
+above: there is exactly one implementation and no Mock counterpart to swap between (charging
+execution stays on `MockChargingAdapter` regardless of a vehicle connection), so an interface would
+be pure indirection with nothing to abstract over. Tests mock `SmartcarClient` directly. This never
+touches charging optimization, scheduling or execution - see TODO.md (not tracked by Git), section
+3.3, for the full reasoning behind keeping it decoupled.
 
 # Database Management
 

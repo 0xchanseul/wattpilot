@@ -33,13 +33,15 @@ Actual vehicle control is **not included in V1**.
 
 ### V1.5
 
-* Tibber API integration
+* Vehicle telemetry integration (Smartcar, read-only) - replaces the originally-planned Tibber
+  integration; see TODO.md (not tracked by Git), section 3.3, for the decision and reasoning
 * EV specification master data
 * UX improvements
 
 ### V2
 
-* Vehicle manufacturer integrations
+* Vehicle manufacturer integrations (real vehicle control - start/stop charging commands, not the
+  read-only telemetry already covered in V1.5)
 * Notifications
 * Home appliance optimization
 * Smart home integrations

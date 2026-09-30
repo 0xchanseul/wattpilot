@@ -16,6 +16,7 @@ import { ChargingHistoryPage } from '@/pages/charging-history-page'
 import { ChargingHistoryDetailPage } from '@/pages/charging-history-detail-page'
 import { SavingsPage } from '@/pages/savings-page'
 import { ProfilePage } from '@/pages/profile-page'
+import { VehicleConnectionCallbackPage } from '@/pages/vehicle-connection-callback-page'
 import { NotFoundPage } from '@/pages/not-found-page'
 
 export const router = createBrowserRouter([
@@ -45,6 +46,7 @@ export const router = createBrowserRouter([
           { path: 'charging/history/:sessionId', element: <ChargingHistoryDetailPage /> },
           { path: 'savings', element: <SavingsPage /> },
           { path: 'profile', element: <ProfilePage /> },
+          { path: 'vehicle-connections/callback', element: <VehicleConnectionCallbackPage /> },
         ],
       },
     ],

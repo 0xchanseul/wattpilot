@@ -6,7 +6,9 @@ info:
     WattPilot V1 REST API specification.
     Optimizes EV charging against Norwegian hourly electricity prices.
     V1 uses manually registered EVs, continuous charging windows, and mock charging;
-    no vehicle-manufacturer control is performed.
+    no vehicle-manufacturer control is performed. V1.5 adds an optional, read-only Smartcar vehicle
+    connection per EV (live battery/charging telemetry only) - it never affects charging execution,
+    which stays on the Mock path regardless of whether an EV is connected.
 
     Authentication: the access token is returned in the response body and sent back as
     `Authorization: Bearer <token>`. The refresh token is never in a body; it is set as an
@@ -21,6 +23,7 @@ servers:
 tags:
   - { name: Auth, description: Sign-up, login, token refresh, and current user }
   - { name: EV, description: Manually registered electric vehicles }
+  - { name: Vehicle Connection, description: Read-only Smartcar vehicle telemetry, linked per EV (V1.5) }
   - { name: Electricity Price, description: Norwegian hourly electricity prices }
   - { name: Charging Optimization, description: Charging plan optimization and calculated recommendations }
   - { name: Scheduler, description: Charging schedule lifecycle, mock-charging execution, and cancellation }
@@ -225,12 +228,142 @@ paths:
     delete:
       tags: [EV]
       summary: Deactivate an EV
-      description: Soft-deletes the EV by changing its status to INACTIVE.
+      description: >-
+        Soft-deletes the EV by changing its status to INACTIVE. Also removes its vehicle connection,
+        if any, so a hidden EV never keeps a live Smartcar link.
       operationId: deleteEv
       responses:
         '204': { description: EV deactivated }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+
+  /evs/{evId}/vehicle-connection/connect-url:
+    parameters:
+      - $ref: '#/components/parameters/EvId'
+    post:
+      tags: [Vehicle Connection]
+      summary: Get a Smartcar Connect URL for this EV
+      description: >-
+        Returns a URL to redirect the browser to Smartcar Connect. Read-only by design: only
+        `read_battery`/`read_charge` are ever requested, never `control_charge` - Mock Charging
+        remains the only execution path regardless of whether an EV is connected (see
+        docs/mvp-scope.md).
+      operationId: getVehicleConnectUrl
+      responses:
+        '200':
+          description: Smartcar Connect URL
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VehicleConnectUrlResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /evs/{evId}/vehicle-connection:
+    parameters:
+      - $ref: '#/components/parameters/EvId'
+    get:
+      tags: [Vehicle Connection]
+      summary: Get this EV's vehicle connection
+      description: Link metadata only - no live Smartcar call. Use the `/telemetry` endpoint for live data.
+      operationId: getVehicleConnection
+      responses:
+        '200':
+          description: Vehicle connection
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VehicleConnection' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Vehicle Connection]
+      summary: Link this EV to a Smartcar vehicle
+      description: >-
+        Completes the Connect flow: the frontend calls this after the user picks a vehicle from
+        `POST /vehicle-connections/candidates` (or that call returned exactly one).
+      operationId: createVehicleConnection
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LinkVehicleConnectionRequest' }
+      responses:
+        '201':
+          description: Vehicle connected
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VehicleConnection' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+    delete:
+      tags: [Vehicle Connection]
+      summary: Disconnect this EV's vehicle
+      description: >-
+        Deletes the link. Removing the connection on Smartcar's side is best-effort: the link is
+        always deleted locally regardless of Smartcar's response, so a user is never stuck with a
+        link they cannot remove because Smartcar is unreachable.
+      operationId: deleteVehicleConnection
+      responses:
+        '204': { description: Vehicle connection removed }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /evs/{evId}/vehicle-connection/telemetry:
+    parameters:
+      - $ref: '#/components/parameters/EvId'
+    get:
+      tags: [Vehicle Connection]
+      summary: Read live telemetry from the connected vehicle
+      description: >-
+        Fetched live from Smartcar on every call - no cache, no scheduler. Any field may be `null`
+        if that signal is unsupported by the vehicle. Deliberately independent of Mock Charging's own
+        simulated progress: the two numbers may legitimately disagree at any time.
+      operationId: getVehicleTelemetry
+      responses:
+        '200':
+          description: Live vehicle telemetry
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VehicleTelemetry' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '502': { $ref: '#/components/responses/BadGateway' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /vehicle-connections/candidates:
+    post:
+      tags: [Vehicle Connection]
+      summary: List vehicles available to link after returning from Smartcar Connect
+      description: >-
+        Called by the SPA callback route right after the Smartcar Connect redirect returns
+        (`?user_id`/`?state` on success, or `?error`/`?error_description` on failure). `state` proves
+        which EV the Connect attempt was for; it is a signed, short-lived value issued by
+        `POST /evs/{evId}/vehicle-connection/connect-url` and is not itself a query parameter here -
+        the frontend passes it through in the request body.
+      operationId: getVehicleConnectCandidates
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VehicleConnectCandidatesRequest' }
+      responses:
+        '200':
+          description: >-
+            Candidate vehicles in the Smartcar account - 2 or more in simulated mode, usually exactly
+            1 for a real account
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VehicleConnectCandidatesResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '502': { $ref: '#/components/responses/BadGateway' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
   /vehicle-models:
     get:
@@ -794,6 +927,16 @@ components:
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/ErrorResponse' }
+    BadGateway:
+      description: The vehicle data provider (Smartcar) failed or timed out
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    ServiceUnavailable:
+      description: Vehicle telemetry is not configured in this environment
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
 
   schemas:
     PriceArea:
@@ -950,6 +1093,74 @@ components:
         model: { type: string, example: Model Y Long Range }
         batteryCapacityKwh: { type: number, format: double, exclusiveMinimum: true, minimum: 0, example: 75 }
         maxAcChargingPowerKw: { type: number, format: double, exclusiveMinimum: true, minimum: 0, maximum: 22, example: 11 }
+
+    VehicleConnectUrlResponse:
+      type: object
+      required: [url]
+      properties:
+        url: { type: string, example: 'https://connect.smartcar.com/oauth/authorize?application_id=...&state=...' }
+
+    VehicleConnection:
+      type: object
+      required: [evId, connectedAt]
+      description: >-
+        Link metadata only. Every Smartcar id is internal and deliberately omitted here - it has no
+        meaning to the frontend.
+      properties:
+        evId: { type: integer, format: int64, minimum: 1, example: 1 }
+        make: { type: string, nullable: true, example: Tesla }
+        model: { type: string, nullable: true, example: Model 3 }
+        year: { type: integer, nullable: true, example: 2023 }
+        connectedAt: { type: string, format: date-time }
+
+    VehicleTelemetry:
+      type: object
+      description: >-
+        Live read from the connected vehicle, fetched fresh on every call. Any field may be `null` if
+        that signal is unsupported by the vehicle or that specific read failed. Intentionally
+        unrelated to Mock Charging's own simulated progress (see docs/mvp-scope.md).
+      required: [retrievedAt]
+      properties:
+        stateOfChargePercent: { type: number, format: double, nullable: true, minimum: 0, maximum: 100, example: 72 }
+        rangeKm: { type: number, format: double, nullable: true, example: 305.5 }
+        isPluggedIn: { type: boolean, nullable: true }
+        isCharging: { type: boolean, nullable: true }
+        retrievedAt: { type: string, format: date-time }
+
+    VehicleConnectCandidatesRequest:
+      type: object
+      required: [state, smartcarUserId]
+      properties:
+        state: { type: string, description: The signed value returned by the connect-url endpoint. }
+        smartcarUserId: { type: string, description: The `user_id` query parameter from the Connect redirect. }
+
+    VehicleCandidate:
+      type: object
+      required: [smartcarVehicleId]
+      properties:
+        smartcarVehicleId: { type: string }
+        make: { type: string, nullable: true, example: Tesla }
+        model: { type: string, nullable: true, example: Model 3 }
+        year: { type: integer, nullable: true, example: 2023 }
+
+    VehicleConnectCandidatesResponse:
+      type: object
+      required: [evId, vehicles]
+      properties:
+        evId: { type: integer, format: int64, minimum: 1, example: 1 }
+        vehicles:
+          type: array
+          items: { $ref: '#/components/schemas/VehicleCandidate' }
+
+    LinkVehicleConnectionRequest:
+      type: object
+      required: [state, smartcarUserId, smartcarVehicleId]
+      properties:
+        state: { type: string }
+        smartcarUserId: { type: string }
+        smartcarVehicleId:
+          type: string
+          description: One of the `smartcarVehicleId` values from `POST /vehicle-connections/candidates`.
 
     ElectricityPrice:
       type: object

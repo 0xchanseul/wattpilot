@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { EvStatusBadge } from '@/features/ev/components/ev-status-badge'
+import { VehicleTelemetryCard } from '@/features/ev/components/vehicle-telemetry-card'
 import {
   useDeactivateEvMutation,
   useEvQuery,
@@ -81,6 +82,8 @@ export function EvDetailPage() {
               </dl>
             </CardContent>
           </Card>
+
+          {ev.status === 'ACTIVE' ? <VehicleTelemetryCard evId={ev.id} /> : null}
 
           {ev.status === 'ACTIVE' ? (
             <div className="flex flex-wrap items-center gap-3">

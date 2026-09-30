@@ -6,7 +6,20 @@ import {
 } from '@tanstack/react-query'
 
 import type { PageResponse } from '@/types/api'
-import { createEv, deactivateEv, getEv, listEvs, listVehicleModels, updateEv } from './api'
+import {
+  createEv,
+  deactivateEv,
+  disconnectVehicleConnection,
+  getEv,
+  getVehicleConnectCandidates,
+  getVehicleConnectUrl,
+  getVehicleConnection,
+  getVehicleTelemetry,
+  linkVehicleConnection,
+  listEvs,
+  listVehicleModels,
+  updateEv,
+} from './api'
 import type { CreateEvInput, Ev, ListEvsParams, UpdateEvInput } from './types'
 
 export const evKeys = {
@@ -72,6 +85,61 @@ export function useDeactivateEvMutation(evId: number) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: () => deactivateEv(evId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: evKeys.all })
+    },
+  })
+}
+
+// --- Vehicle connection (Smartcar, read-only, V1.5) -------------------------
+
+const vehicleConnectionKey = (evId: number) => [...evKeys.detail(evId), 'vehicle-connection'] as const
+const vehicleTelemetryKey = (evId: number) => [...vehicleConnectionKey(evId), 'telemetry'] as const
+
+export function useVehicleConnectionQuery(evId: number) {
+  return useQuery({
+    queryKey: vehicleConnectionKey(evId),
+    queryFn: () => getVehicleConnection(evId),
+    enabled: Number.isFinite(evId),
+  })
+}
+
+/** Live telemetry, refetched at most every 15s while the tab is active; only enabled once a
+ * connection is known to exist, so an unlinked EV never calls this endpoint. */
+export function useVehicleTelemetryQuery(evId: number, connected: boolean) {
+  return useQuery({
+    queryKey: vehicleTelemetryKey(evId),
+    queryFn: () => getVehicleTelemetry(evId),
+    enabled: Number.isFinite(evId) && connected,
+    staleTime: 15_000,
+  })
+}
+
+export function useVehicleConnectUrlMutation(evId: number) {
+  return useMutation({ mutationFn: () => getVehicleConnectUrl(evId) })
+}
+
+export function useVehicleConnectCandidatesMutation() {
+  return useMutation({
+    mutationFn: (input: { state: string; smartcarUserId: string }) => getVehicleConnectCandidates(input),
+  })
+}
+
+export function useLinkVehicleConnectionMutation(evId: number) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (input: { state: string; smartcarUserId: string; smartcarVehicleId: string }) =>
+      linkVehicleConnection(evId, input),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: evKeys.all })
+    },
+  })
+}
+
+export function useDisconnectVehicleMutation(evId: number) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => disconnectVehicleConnection(evId),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: evKeys.all })
     },
