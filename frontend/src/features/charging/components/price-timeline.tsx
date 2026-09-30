@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
+import { Area, AreaChart, ReferenceArea, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
-import { cn } from '@/lib/utils'
 import { formatOrePerKwh, formatTime } from '@/lib/format'
 import type { ElectricityPrice } from '@/features/electricity/types'
 
@@ -11,63 +11,110 @@ interface PriceTimelineProps {
   windowEndAt: string
 }
 
+interface Point {
+  t: number
+  ore: number
+}
+
 /**
- * A lightweight hourly-price bar chart: each hour is a bar whose height tracks its price, and the
- * hours covered by the selected charging window are highlighted. Deliberately CSS-only — no chart
- * library — to keep the MVP simple.
+ * Hourly prices as a step area with the selected charging window shaded, using the same styling as
+ * the Dashboard's cheapest-hours chart so the cheapest stretch reads the same way on both pages.
  */
 export function PriceTimeline({ prices, windowStartAt, windowEndAt }: PriceTimelineProps) {
-  const windowStart = new Date(windowStartAt).getTime()
-  const windowEnd = new Date(windowEndAt).getTime()
+  const data = useMemo<Point[]>(
+    () =>
+      [...prices]
+        .sort((a, b) => a.startsAt.localeCompare(b.startsAt))
+        .flatMap((price) => [
+          { t: new Date(price.startsAt).getTime(), ore: price.pricePerKwh * 100 },
+          { t: new Date(price.endsAt).getTime(), ore: price.pricePerKwh * 100 },
+        ]),
+    [prices],
+  )
 
-  const bars = useMemo(() => {
-    const maxPrice = Math.max(...prices.map((price) => price.pricePerKwh), 0)
-    return prices.map((price) => {
-      const start = new Date(price.startsAt).getTime()
-      const end = new Date(price.endsAt).getTime()
-      const inWindow = start < windowEnd && end > windowStart
-      const heightPercent = maxPrice > 0 ? Math.max(6, (price.pricePerKwh / maxPrice) * 100) : 6
-      return { price, inWindow, heightPercent }
-    })
-  }, [prices, windowStart, windowEnd])
-
-  if (prices.length === 0) {
+  if (data.length === 0) {
     return null
   }
 
-  const first = prices[0]
-  const last = prices[prices.length - 1]
+  const windowStart = new Date(windowStartAt).getTime()
+  const windowEnd = new Date(windowEndAt).getTime()
+
+  // Precomputed static domain: a function-form domain re-runs during layout and can loop with
+  // ResponsiveContainer.
+  const ores = data.map((point) => point.ore)
+  const yMin = Math.max(0, Math.floor((Math.min(...ores) - 8) / 5) * 5)
+  const yMax = Math.ceil((Math.max(...ores) + 5) / 5) * 5
 
   return (
     <div className="space-y-2">
-      <div className="flex h-32 items-end gap-0.5 overflow-x-auto rounded-md border bg-muted/30 p-2">
-        {bars.map(({ price, inWindow, heightPercent }) => (
-          <div
-            key={price.id}
-            title={`${formatTime(price.startsAt)} · ${formatOrePerKwh(price.pricePerKwh)}`}
-            className="flex h-full min-w-[6px] flex-1 items-end"
-          >
-            <div
-              className={cn(
-                'w-full rounded-sm transition-colors',
-                inWindow ? 'bg-chart-2' : 'bg-muted-foreground/25',
-              )}
-              style={{ height: `${heightPercent}%` }}
-            />
-          </div>
-        ))}
-      </div>
-      <div className="text-muted-foreground flex justify-between text-xs">
-        <span>{formatTime(first.startsAt)}</span>
-        <span className="flex items-center gap-3">
-          <span className="flex items-center gap-1">
-            <span className="bg-chart-2 inline-block size-2 rounded-sm" /> Charging window
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="bg-muted-foreground/25 inline-block size-2 rounded-sm" /> Other hours
-          </span>
+      <ResponsiveContainer width="100%" height={200} debounce={80}>
+        <AreaChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -8 }}>
+          <defs>
+            <linearGradient id="price-timeline-fill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="var(--color-chart-3)" stopOpacity={0.35} />
+              <stop offset="100%" stopColor="var(--color-chart-3)" stopOpacity={0.04} />
+            </linearGradient>
+          </defs>
+
+          <XAxis
+            dataKey="t"
+            type="number"
+            scale="time"
+            domain={['dataMin', 'dataMax']}
+            tickFormatter={(t: number) => formatTime(new Date(t).toISOString())}
+            tick={{ fontSize: 11, fill: 'var(--color-muted-foreground)' }}
+            stroke="var(--color-border)"
+            minTickGap={24}
+          />
+          <YAxis
+            width={38}
+            domain={[yMin, yMax]}
+            allowDecimals={false}
+            tickFormatter={(v: number) => `${Math.round(v)}`}
+            tick={{ fontSize: 11, fill: 'var(--color-muted-foreground)' }}
+            stroke="var(--color-border)"
+          />
+
+          <ReferenceArea
+            x1={Math.max(windowStart, data[0].t)}
+            x2={Math.min(windowEnd, data[data.length - 1].t)}
+            fill="var(--color-chart-2)"
+            fillOpacity={0.18}
+            stroke="var(--color-chart-2)"
+            strokeOpacity={0.5}
+          />
+
+          <Tooltip
+            isAnimationActive={false}
+            content={({ active, payload }) => {
+              if (!active || !payload?.length) return null
+              const point = payload[0].payload as Point
+              return (
+                <div className="bg-popover text-popover-foreground rounded-md border px-2 py-1 text-xs shadow-sm">
+                  <div>{formatTime(new Date(point.t).toISOString())}</div>
+                  <div className="font-medium">{formatOrePerKwh(point.ore / 100)}</div>
+                </div>
+              )
+            }}
+          />
+
+          <Area
+            type="stepAfter"
+            dataKey="ore"
+            stroke="var(--color-chart-3)"
+            strokeWidth={2}
+            fill="url(#price-timeline-fill)"
+            isAnimationActive={false}
+          />
+        </AreaChart>
+      </ResponsiveContainer>
+
+      <div className="text-muted-foreground flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs">
+        <span className="flex items-center gap-1.5">
+          <span className="bg-chart-2/20 ring-chart-2/50 inline-block size-2.5 rounded-sm ring-1" />
+          Charging window
         </span>
-        <span>{formatTime(last.endsAt)}</span>
+        <span>Hourly price in øre/kWh ({prices[0].priceArea})</span>
       </div>
     </div>
   )
