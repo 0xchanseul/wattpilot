@@ -14,9 +14,6 @@
 | Vehicle Specification Master Data |  | ✅ |  | Build master data for vehicle specifications | Automatically display vehicle specifications when the user selects only the vehicle model |
 | Manufacturer Integration (control) |  |  | ✅ | Vehicle manufacturer control integration | Actual charge start/stop commands through supported vehicle manufacturers via OAuth. Read-only telemetry is already covered above (V1.5) |
 | Notifications |  |  | ✅ |  |  |
-| Washing Machine |  |  | ✅ |  |  |
-| Dishwasher |  |  | ✅ |  |  |
-| Smart Home Integration |  |  | ✅ |  |  |
 
 - **Login session lifetime:** Access tokens live 30 minutes and are never kept in browser persistent storage. A session has an absolute expiration fixed at login — 7 days by default, or 30 days when the user ticks "keep me signed in" on the login form (default off). Refresh-token rotation issues a new token but never moves that deadline, so an active user is still forced to log in again once the original expiry passes. Server restarts do not end sessions (refresh tokens live in PostgreSQL).
 - **V1 EV input:** Users manually enter battery capacity, maximum AC charging power, and default charger power.
@@ -37,4 +34,14 @@
 
 ## Considered but excluded
 
+- **Home appliances (washing machine, dishwasher) and smart home integration:** excluded from every
+  version, including V2. Two reasons:
+  - **Integration difficulty:** there is no single integration point. Each appliance brand and smart
+    home platform has its own API, authentication, and device model, and many offer no public
+    third-party API at all. Every additional vendor is a separate integration to build and maintain,
+    and none of it can be verified without owning the real devices.
+  - **Cost versus value:** the optimization logic (pick the cheapest window in the price series) is the
+    same one WattPilot already has for EV charging, so supporting appliances adds little new
+    capability. The integration and maintenance cost is high compared with that small gain. An
+    appliance also uses far less energy per cycle than an EV, so the possible savings per run are small.
 - **Tibber integration:** replaced by the read-only Smartcar telemetry feature above.

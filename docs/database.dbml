@@ -1,6 +1,6 @@
 // WattPilot Database Schema
 // Target: V1 MVP, with V1.5 (vehicle_models, vehicle_connections) implemented.
-// V2 smart-home devices should be introduced by refactoring rather than premature abstraction.
+// The schema is intentionally EV-specific; home appliances and smart-home devices are out of scope.
 
 Enum user_status {
   ACTIVE
@@ -414,14 +414,5 @@ Table charging_sessions {
 // scope. If added, it most likely extends vehicle_connections with a scope/permission marker rather
 // than a new table, since the connection identity itself does not change between read and control.
 //
-// When smart-home devices are actually introduced,
-// consider extracting EV-specific ownership into a generalized device model:
-//
-// devices
-//   ├── ev_device_details
-//   ├── washing_machine_details
-//   └── dishwasher_details
-//
-// At that point, charging_plans/schedules can evolve into
-// generalized energy_jobs/energy_schedules.
-// Do not introduce this abstraction in V1 unless requirements demand it.
+// Home appliances and smart-home devices are excluded from scope (see docs/mvp-scope.md,
+// "Considered but excluded"), so no generalized device model is planned. The schema stays EV-specific.

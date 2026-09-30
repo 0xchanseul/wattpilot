@@ -43,9 +43,11 @@ Actual vehicle control is **not included in V1**.
 * Vehicle manufacturer integrations (real vehicle control - start/stop charging commands, not the
   read-only telemetry already covered in V1.5)
 * Notifications
-* Home appliance optimization
-* Smart home integrations
 * Multiple device support
+
+Home appliance optimization and smart home integrations are excluded from all versions: each brand
+needs its own integration that cannot be verified without real devices, and the cost is not justified
+by the added value. See `docs/mvp-scope.md`, "Considered but excluded".
 
 Do not implement future-version features unless explicitly requested by the user.
 
@@ -500,7 +502,7 @@ The final decision and actual commit are always performed by the user.
 * Charging optimization in V1 uses continuous charging periods.
 * Charging efficiency may be treated as a system-level constant where defined by the current specification.
 * Do not implement V1.5 or V2 functionality unless explicitly requested.
-* Do not add smart-home appliance support to V1.
+* Do not add home appliance or smart-home support (excluded from all versions).
 * Do not introduce microservices for the MVP.
 * Do not introduce Kubernetes for the MVP.
 * Keep the initial architecture as a modular monolith.
