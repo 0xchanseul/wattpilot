@@ -5,6 +5,8 @@ import com.wattpilot.integration.smartcar.dto.SmartcarSignalEnvelope;
 import com.wattpilot.integration.smartcar.dto.SmartcarTelemetry;
 import com.wattpilot.integration.smartcar.dto.SmartcarTokenResponse;
 import com.wattpilot.integration.smartcar.dto.SmartcarVehicleCandidate;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatusCode;
@@ -34,6 +36,8 @@ import java.util.stream.Collectors;
  */
 @Component
 public class SmartcarClient {
+
+    private static final Logger log = LoggerFactory.getLogger(SmartcarClient.class);
 
     private static final String SIGNAL_STATE_OF_CHARGE = "tractionbattery-stateofcharge";
     private static final String SIGNAL_RANGE = "tractionbattery-range";
@@ -96,9 +100,10 @@ public class SmartcarClient {
                     .retrieve()
                     .body(SmartcarConnectionsEnvelope.class);
             if (envelope == null || envelope.data() == null) {
+                log.info("Smartcar returned no connections payload for user {}", smartcarUserId);
                 return List.of();
             }
-            return envelope.data().stream()
+            List<SmartcarVehicleCandidate> candidates = envelope.data().stream()
                     .filter(connection -> connection.attributes() != null
                             && connection.attributes().user() != null
                             && smartcarUserId.equals(connection.attributes().user().id())
@@ -112,6 +117,11 @@ public class SmartcarClient {
                             connection.attributes().vehicle() != null ? connection.attributes().vehicle().model() : null,
                             connection.attributes().vehicle() != null ? connection.attributes().vehicle().year() : null))
                     .collect(Collectors.toList());
+            // Distinguishes "Smartcar has no vehicle for this user" from "the client-side filter
+            // dropped what Smartcar returned" when a Connect callback ends with no vehicles.
+            log.info("Smartcar returned {} connection(s) for user {}; {} kept after filtering",
+                    envelope.data().size(), smartcarUserId, candidates.size());
+            return candidates;
         } catch (SmartcarProviderException ex) {
             throw ex;
         } catch (RuntimeException ex) {
