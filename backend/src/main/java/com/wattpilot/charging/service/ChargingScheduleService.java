@@ -19,6 +19,7 @@ import com.wattpilot.charging.repository.ChargingScheduleRepository;
 import com.wattpilot.charging.repository.ChargingSessionRepository;
 import com.wattpilot.common.exception.BusinessException;
 import com.wattpilot.common.exception.ErrorCode;
+import com.wattpilot.electricity.dto.PricePoint;
 import com.wattpilot.electricity.entity.ElectricityPrice;
 import com.wattpilot.electricity.service.ElectricityPriceService;
 import com.wattpilot.ev.entity.Ev;
@@ -27,6 +28,7 @@ import org.springframework.data.domain.Limit;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
@@ -65,8 +67,12 @@ public class ChargingScheduleService {
      */
     public static final int RECENT_ACTIVITY_LIMIT = 5;
 
+    /** How long after its start a previewed window may still be confirmed (shortened to start now). */
+    public static final Duration START_DELAY_GRACE = Duration.ofMinutes(5);
+
     private final ChargingOptimizationService optimizationService;
     private final ChargingCandidateSelector candidateSelector;
+    private final ChargingWindowCalculator windowCalculator;
     private final EvService evService;
     private final ElectricityPriceService electricityPriceService;
     private final ChargingPlanRepository planRepository;
@@ -76,6 +82,7 @@ public class ChargingScheduleService {
 
     public ChargingScheduleService(ChargingOptimizationService optimizationService,
                                    ChargingCandidateSelector candidateSelector,
+                                   ChargingWindowCalculator windowCalculator,
                                    EvService evService,
                                    ElectricityPriceService electricityPriceService,
                                    ChargingPlanRepository planRepository,
@@ -84,6 +91,7 @@ public class ChargingScheduleService {
                                    ChargingSessionRepository sessionRepository) {
         this.optimizationService = optimizationService;
         this.candidateSelector = candidateSelector;
+        this.windowCalculator = windowCalculator;
         this.evService = evService;
         this.electricityPriceService = electricityPriceService;
         this.planRepository = planRepository;
@@ -114,8 +122,7 @@ public class ChargingScheduleService {
         ChargingCandidatesResult.Feasible feasible = (ChargingCandidatesResult.Feasible) result;
 
         // 409 if the user's pick is no longer a current candidate (prices moved / start has passed).
-        ChargingCandidate selected =
-                candidateSelector.select(feasible.candidates(), request.selectedStartAt(), request.selectedEndAt());
+        ChargingCandidate selected = selectCandidate(request, ev, feasible);
 
         requireNoOverlap(userId, request.evId(), selected);
 
@@ -141,6 +148,46 @@ public class ChargingScheduleService {
                 selected.estimatedCostNok()));
 
         return ChargingScheduleResponse.of(schedule, plan, ChargingSlotMapper.toDtos(slotEntities), null);
+    }
+
+    /**
+     * A previewed window that starts "now" is already in the past by the time the user confirms, so it
+     * can never match a fresh candidate. When the start has slipped by no more than
+     * {@link #START_DELAY_GRACE} the window is shortened to begin now and keeps its end; anything
+     * older goes through the strict match and is rejected as unavailable.
+     */
+    private ChargingCandidate selectCandidate(CreateChargingScheduleRequest request, Ev ev,
+                                              ChargingCandidatesResult.Feasible feasible) {
+        OffsetDateTime now = optimizationService.now();
+        if (!isWithinStartGrace(request, feasible.estimatedDurationMinutes(), now)) {
+            return candidateSelector.select(feasible.candidates(), request.selectedStartAt(), request.selectedEndAt());
+        }
+
+        List<PricePoint> prices =
+                electricityPriceService.getPricePointsInWindow(request.priceArea(), now, request.selectedEndAt());
+        ChargingCandidate trimmed = windowCalculator.trimStart(
+                feasible.candidates().get(0), EvSnapshot.from(ev), now, request.selectedEndAt(), prices);
+        if (trimmed == null) {
+            throw new BusinessException(ErrorCode.CHARGING_CANDIDATE_UNAVAILABLE,
+                    "Stored prices no longer cover the selected charging window.");
+        }
+        return trimmed;
+    }
+
+    /**
+     * True when the picked start passed at most {@link #START_DELAY_GRACE} ago and the window is still a
+     * full-length one that finishes in the future and by the deadline, so the shortened window cannot be
+     * something the user never saw.
+     */
+    private static boolean isWithinStartGrace(CreateChargingScheduleRequest request, int durationMinutes,
+                                              OffsetDateTime now) {
+        OffsetDateTime start = request.selectedStartAt();
+        OffsetDateTime end = request.selectedEndAt();
+        return start.isBefore(now)
+                && !start.isBefore(now.minus(START_DELAY_GRACE))
+                && end.isAfter(now)
+                && !end.isAfter(request.requiredCompletionAt())
+                && Duration.between(start, end).toMinutes() == durationMinutes;
     }
 
     @Transactional(readOnly = true)

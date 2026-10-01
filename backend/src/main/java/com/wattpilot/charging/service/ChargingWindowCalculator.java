@@ -152,6 +152,30 @@ public class ChargingWindowCalculator {
     }
 
     /**
+     * Shortens a previously previewed window whose start has just passed: the new start replaces the
+     * old one while the end stays fixed, so the completion time the user saw is kept. Energy and cost
+     * shrink with the window and are recomputed from {@code prices}; the baseline is scaled from
+     * {@code reference} (a full-length window of the same request) by the share of energy that remains.
+     *
+     * @return the trimmed window, or {@code null} when {@code prices} do not cover it without gaps
+     */
+    public ChargingCandidate trimStart(ChargingCandidate reference, EvSnapshot evSnapshot,
+                                       OffsetDateTime newStart, OffsetDateTime end, List<PricePoint> prices) {
+        BigDecimal deliveredPowerKw = evSnapshot.maxAcChargingPowerKw().min(evSnapshot.defaultChargerPowerKw());
+        List<ChargingPlanSlot> slots = buildSlots(newStart, end, deliveredPowerKw, prices);
+        if (slots == null || slots.isEmpty()) {
+            return null;
+        }
+        BigDecimal energy = sum(slots, ChargingPlanSlot::plannedEnergyKwh, ENERGY_SCALE);
+        BigDecimal cost = sum(slots, ChargingPlanSlot::expectedCostNok, COST_SCALE);
+        BigDecimal baseline = reference.baselineCostNok()
+                .multiply(energy)
+                .divide(reference.expectedEnergyKwh(), COST_SCALE, RoundingMode.HALF_UP);
+        return new ChargingCandidate(1, toDisplayZone(newStart), toDisplayZone(end), energy, cost,
+                baseline, baseline.subtract(cost), slots);
+    }
+
+    /**
      * The single cheapest continuous window, in the legacy {@link OptimizationResult} shape. Retained
      * so existing calculator/orchestration tests keep their exact assertions; new code calls
      * {@link #calculateCandidates}.

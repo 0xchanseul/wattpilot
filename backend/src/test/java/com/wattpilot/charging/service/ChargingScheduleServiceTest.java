@@ -16,6 +16,7 @@ import com.wattpilot.charging.repository.ChargingSessionRepository;
 import com.wattpilot.common.PriceArea;
 import com.wattpilot.common.exception.BusinessException;
 import com.wattpilot.common.exception.ErrorCode;
+import com.wattpilot.electricity.dto.PricePoint;
 import com.wattpilot.electricity.entity.ElectricityPrice;
 import com.wattpilot.electricity.entity.PriceProvider;
 import com.wattpilot.electricity.service.ElectricityPriceService;
@@ -60,8 +61,89 @@ class ChargingScheduleServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new ChargingScheduleService(optimizationService, candidateSelector, evService,
-                electricityPriceService, planRepository, slotRepository, scheduleRepository, sessionRepository);
+        service = new ChargingScheduleService(optimizationService, candidateSelector, new ChargingWindowCalculator(),
+                evService, electricityPriceService, planRepository, slotRepository, scheduleRepository,
+                sessionRepository);
+    }
+
+    @Test
+    void shortensAWindowWhoseStartPassedWithinTheGraceKeepingItsEnd() {
+        stubDelayedConfirmation("01:05");
+        when(electricityPriceService.getPricePointsInWindow(eq(PriceArea.NO1), any(), any())).thenReturn(List.of(
+                pricePoint("01:00", "02:00", "0.30"),
+                pricePoint("02:00", "03:00", "0.20"),
+                pricePoint("03:00", "04:00", "0.10")));
+        stubPersistence();
+
+        service.createSchedule(USER_ID, requestSelecting("01:00", "03:33"));
+
+        ArgumentCaptor<ChargingSchedule> scheduleCaptor = ArgumentCaptor.forClass(ChargingSchedule.class);
+        verify(scheduleRepository).save(scheduleCaptor.capture());
+        ChargingSchedule schedule = scheduleCaptor.getValue();
+        assertThat(schedule.getScheduledStartAt()).isEqualTo(at("01:05"));
+        assertThat(schedule.getScheduledEndAt()).isEqualTo(at("03:33"));
+        // 55 min at 0.30, 60 min at 0.20, 33 min at 0.10 of a 7.40 kW charge
+        assertThat(schedule.getExpectedEnergyKwh()).isEqualByComparingTo("18.25");
+        assertThat(schedule.getEstimatedCostNok()).isEqualByComparingTo("3.9220");
+        verify(candidateSelector, never()).select(any(), any(), any());
+    }
+
+    @Test
+    void rejectsAWindowWhoseStartPassedBeyondTheGrace() {
+        stubDelayedConfirmation("01:06");
+        when(candidateSelector.select(any(), any(), any())).thenThrow(
+                new BusinessException(ErrorCode.CHARGING_CANDIDATE_UNAVAILABLE, "gone"));
+
+        assertThatThrownBy(() -> service.createSchedule(USER_ID, requestSelecting("01:00", "03:33")))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).errorCode())
+                .isEqualTo(ErrorCode.CHARGING_CANDIDATE_UNAVAILABLE);
+
+        verify(planRepository, never()).save(any());
+    }
+
+    @Test
+    void doesNotShortenAWindowWhoseLengthDiffersFromTheChargingDuration() {
+        stubDelayedConfirmation("01:03");
+        when(candidateSelector.select(any(), any(), any())).thenThrow(
+                new BusinessException(ErrorCode.CHARGING_CANDIDATE_UNAVAILABLE, "gone"));
+
+        assertThatThrownBy(() -> service.createSchedule(USER_ID, requestSelecting("01:00", "02:00")))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).errorCode())
+                .isEqualTo(ErrorCode.CHARGING_CANDIDATE_UNAVAILABLE);
+
+        verify(electricityPriceService, never()).getPricePointsInWindow(any(), any(), any());
+    }
+
+    private void stubDelayedConfirmation(String nowHhmm) {
+        when(evService.getActiveOwnedEvForUpdate(USER_ID, EV_ID)).thenReturn(ev());
+        when(optimizationService.now()).thenReturn(at(nowHhmm));
+        when(optimizationService.calculateCandidates(any(), any())).thenReturn(new ChargingCandidatesResult.Feasible(
+                new BigDecimal("30.00"), new BigDecimal("7.40"), 153,
+                List.of(new ChargingCandidate(1, at(nowHhmm), at("03:36"), new BigDecimal("18.87"),
+                        new BigDecimal("4.0000"), new BigDecimal("5.0000"), new BigDecimal("1.0000"), List.of()))));
+    }
+
+    private void stubPersistence() {
+        when(optimizationService.resolveEarliestStart(null)).thenReturn(at("01:05"));
+        when(planRepository.findIdsByUserIdAndEvId(USER_ID, EV_ID)).thenReturn(List.of());
+        when(electricityPriceService.getPricesInWindow(eq(PriceArea.NO1), any(), any())).thenReturn(List.of(
+                price(101L, "01:00", "02:00", "0.30"), price(102L, "02:00", "03:00", "0.20"),
+                price(103L, "03:00", "04:00", "0.10")));
+        when(planRepository.save(any())).thenAnswer(inv -> withId(inv.getArgument(0), 77L));
+        when(slotRepository.saveAll(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(scheduleRepository.save(any())).thenAnswer(inv -> withId(inv.getArgument(0), 88L));
+    }
+
+    private static PricePoint pricePoint(String startHhmm, String endHhmm, String pricePerKwh) {
+        return new PricePoint(at(startHhmm), at(endHhmm), new BigDecimal(pricePerKwh));
+    }
+
+    private static CreateChargingScheduleRequest requestSelecting(String startHhmm, String endHhmm) {
+        return new CreateChargingScheduleRequest(EV_ID, new BigDecimal("30"), new BigDecimal("80"),
+                OffsetDateTime.parse("2026-09-04T07:00:00+02:00"), PriceArea.NO1,
+                at(startHhmm), at(endHhmm));
     }
 
     @Test
@@ -117,6 +199,7 @@ class ChargingScheduleServiceTest {
     @Test
     void propagatesAStaleCandidateSelectionWithoutPersisting() {
         when(evService.getActiveOwnedEvForUpdate(USER_ID, EV_ID)).thenReturn(ev());
+        when(optimizationService.now()).thenReturn(at("00:00"));
         when(optimizationService.calculateCandidates(any(), any())).thenReturn(feasible(selectedCandidate()));
         when(candidateSelector.select(any(), any(), any())).thenThrow(
                 new BusinessException(ErrorCode.CHARGING_CANDIDATE_UNAVAILABLE, "gone"));
@@ -199,6 +282,7 @@ class ChargingScheduleServiceTest {
 
     private void stubFeasibleCalculationSelecting(ChargingCandidate selected) {
         when(evService.getActiveOwnedEvForUpdate(USER_ID, EV_ID)).thenReturn(ev());
+        when(optimizationService.now()).thenReturn(at("00:00"));
         when(optimizationService.calculateCandidates(any(), any())).thenReturn(feasible(selected));
         when(candidateSelector.select(any(), any(), any())).thenReturn(selected);
     }

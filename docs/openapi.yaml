@@ -524,10 +524,16 @@ paths:
         and one charging_schedules row, in a single transaction. Candidates the user did not pick are
         never stored.
 
+        A window that starts "now" in the preview is already in the past when the user confirms. If
+        the picked start passed no more than 5 minutes ago (and the window is still a full-length
+        one finishing in the future and by the deadline), the stored schedule starts at the
+        confirmation time and keeps the picked end. Its energy and cost are recomputed for the
+        shorter window, so they are slightly lower than previewed.
+
         - 422 (stable `code`, as for the preview) when the recomputed request is infeasible.
         - 409 `CHARGING_CANDIDATE_UNAVAILABLE` when the picked window is no longer among the current
-          candidates (prices moved, or its start time has passed) — the client should request a
-          fresh preview.
+          candidates (prices moved, or its start time passed more than 5 minutes ago) — the client
+          should request a fresh preview.
         - 409 `CHARGING_SCHEDULE_CONFLICT` when the EV already has an active schedule overlapping the
           selected window.
       operationId: createChargingSchedule
