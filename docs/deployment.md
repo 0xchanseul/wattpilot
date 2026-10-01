@@ -683,9 +683,16 @@ integration.
    SMARTCAR_REDIRECT_URI=...   # exactly the URI registered in step 3
    SMARTCAR_MODE=simulated     # or "live" for a real vehicle account
    ```
-5. Use `mode=simulated` (the default) to test end-to-end with Smartcar's vehicle simulator, with no
-   real car needed - Smartcar Connect accepts any email/password in this mode and returns 2+
-   simulated vehicles.
+5. Use `mode=simulated` (the default, and the mode used in production) to test end-to-end without a
+   real car. Create the vehicle in the Smartcar dashboard's Vehicle Simulator (Simulator -> Add
+   simulated vehicle): this creates the connection to the app directly, with no Connect login step,
+   and WattPilot then finds it through the candidates endpoint. Then set the vehicle's signal values
+   in the simulator and Publish them; until then every signal returns `SIGNAL_NOT_FOUND`.
+   - Smartcar Connect's own brand login screens in simulated mode do **not** accept arbitrary
+     credentials, despite what the Connect screen says, so a user cannot create a new simulated
+     connection by going through the Connect flow.
+   - `mode=live` requires a real vehicle account from a supported manufacturer, so it is not used
+     for the shared demo.
 
 # Monitoring & Logging
 
