@@ -94,7 +94,7 @@ public class SmartcarClient {
     public List<SmartcarVehicleCandidate> listVehicles(String smartcarUserId) {
         try {
             SmartcarConnectionsEnvelope envelope = restClient.get()
-                    .uri(uriBuilder -> uriBuilder.path("/connections").queryParam("userId", smartcarUserId).build())
+                    .uri(uriBuilder -> uriBuilder.path("/connections").queryParam("filter[userId]", smartcarUserId).build())
                     .headers(headers -> headers.setBearerAuth(accessToken()))
                     .accept(MediaType.APPLICATION_JSON)
                     .retrieve()
@@ -121,17 +121,6 @@ public class SmartcarClient {
             // dropped what Smartcar returned" when a Connect callback ends with no vehicles.
             log.info("Smartcar returned {} connection(s) for user {}; {} kept after filtering",
                     envelope.data().size(), smartcarUserId, candidates.size());
-            if (candidates.isEmpty()) {
-                envelope.data().forEach(connection -> log.info(
-                        "Dropped Smartcar connection {}: attributes={}, attributesUserId={}, relationships={}, vehicleRelationship={}",
-                        connection.id(),
-                        connection.attributes() != null,
-                        connection.attributes() != null && connection.attributes().user() != null
-                                ? connection.attributes().user().id() : null,
-                        connection.relationships() != null,
-                        connection.relationships() != null && connection.relationships().vehicle() != null
-                                ? connection.relationships().vehicle().data() : null));
-            }
             return candidates;
         } catch (SmartcarProviderException ex) {
             throw ex;

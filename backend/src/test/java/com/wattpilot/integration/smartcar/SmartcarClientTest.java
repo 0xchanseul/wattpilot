@@ -74,11 +74,11 @@ class SmartcarClientTest {
     void fetchesAndCachesTheAppTokenAcrossMultipleCalls() {
         server.expect(requestTo(AUTH_URL)).andExpect(method(POST))
                 .andRespond(withSuccess(TOKEN_JSON, MediaType.APPLICATION_JSON));
-        server.expect(requestTo(VEHICLE_API_BASE + "/connections?userId=sc-user-1"))
+        server.expect(requestTo(VEHICLE_API_BASE + "/connections?filter%5BuserId%5D=sc-user-1"))
                 .andExpect(method(GET))
                 .andExpect(header("Authorization", "Bearer app-token"))
                 .andRespond(withSuccess("{\"data\":[]}", MediaType.APPLICATION_JSON));
-        server.expect(requestTo(VEHICLE_API_BASE + "/connections?userId=sc-user-1"))
+        server.expect(requestTo(VEHICLE_API_BASE + "/connections?filter%5BuserId%5D=sc-user-1"))
                 .andExpect(method(GET))
                 .andExpect(header("Authorization", "Bearer app-token"))
                 .andRespond(withSuccess("{\"data\":[]}", MediaType.APPLICATION_JSON));
@@ -97,7 +97,7 @@ class SmartcarClientTest {
                 .andRespond(withSuccess(
                         "{\"access_token\":\"token-1\",\"token_type\":\"Bearer\",\"expires_in\":90}",
                         MediaType.APPLICATION_JSON));
-        server.expect(requestTo(VEHICLE_API_BASE + "/connections?userId=u")).andExpect(method(GET))
+        server.expect(requestTo(VEHICLE_API_BASE + "/connections?filter%5BuserId%5D=u")).andExpect(method(GET))
                 .andExpect(header("Authorization", "Bearer token-1"))
                 .andRespond(withSuccess("{\"data\":[]}", MediaType.APPLICATION_JSON));
         // expires_in=90s and the renewal margin is 60s, so once "now" advances by 40s (50s left,
@@ -106,7 +106,7 @@ class SmartcarClientTest {
                 .andRespond(withSuccess(
                         "{\"access_token\":\"token-2\",\"token_type\":\"Bearer\",\"expires_in\":3600}",
                         MediaType.APPLICATION_JSON));
-        server.expect(requestTo(VEHICLE_API_BASE + "/connections?userId=u")).andExpect(method(GET))
+        server.expect(requestTo(VEHICLE_API_BASE + "/connections?filter%5BuserId%5D=u")).andExpect(method(GET))
                 .andExpect(header("Authorization", "Bearer token-2"))
                 .andRespond(withSuccess("{\"data\":[]}", MediaType.APPLICATION_JSON));
 
@@ -122,7 +122,7 @@ class SmartcarClientTest {
     @Test
     void listVehiclesFiltersOutConnectionsForADifferentSmartcarUser() {
         stubToken();
-        server.expect(requestTo(VEHICLE_API_BASE + "/connections?userId=sc-user-1"))
+        server.expect(requestTo(VEHICLE_API_BASE + "/connections?filter%5BuserId%5D=sc-user-1"))
                 .andRespond(withSuccess("""
                         {"data": [
                           {"id": "conn-1",
@@ -203,7 +203,7 @@ class SmartcarClientTest {
     @Test
     void aTransportFailureMapsToAProviderException() {
         stubToken();
-        server.expect(requestTo(VEHICLE_API_BASE + "/connections?userId=u"))
+        server.expect(requestTo(VEHICLE_API_BASE + "/connections?filter%5BuserId%5D=u"))
                 .andRespond(withException(new SocketTimeoutException("read timed out")));
 
         assertThatThrownBy(() -> client().listVehicles("u")).isInstanceOf(SmartcarProviderException.class);
