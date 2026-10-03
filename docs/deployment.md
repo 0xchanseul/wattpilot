@@ -685,12 +685,19 @@ integration.
    ```
 5. Use `mode=simulated` (the default, and the mode used in production) to test end-to-end without a
    real car. Create the vehicle in the Smartcar dashboard's Vehicle Simulator (Simulator -> Add
-   simulated vehicle): this creates the connection to the app directly, with no Connect login step,
-   and WattPilot then finds it through the candidates endpoint. Then set the vehicle's signal values
-   in the simulator and Publish them; until then every signal returns `SIGNAL_NOT_FOUND`.
-   - Smartcar Connect's own brand login screens in simulated mode do **not** accept arbitrary
-     credentials, despite what the Connect screen says, so a user cannot create a new simulated
-     connection by going through the Connect flow.
+   simulated vehicle), then set the vehicle's signal values in the simulator and Publish them; until
+   then every signal returns `SIGNAL_NOT_FOUND`.
+   - To connect the vehicle through WattPilot's own "Connect vehicle" flow, log in on the Smartcar
+     Connect screen with that vehicle's own credentials: in the dashboard, open the vehicle's
+     "Connect this simulated vehicle to your application" dialog, "Connect with Smartcar Connect" tab,
+     and use its Username (`sim-vid-<vehicle>@smartcar.dev`) and Password with any brand. Choose
+     the country flag matching the region the vehicle was created for, otherwise the login fails.
+     The legacy simulator shows the same credentials behind its "Connect Credentials" button.
+   - Logging in with any other credentials succeeds but creates a Smartcar user that owns no
+     vehicle, so the callback ends with "No vehicles were found in this Smartcar account."
+   - The dialog's "Connect automatically" tab instead connects the vehicle to the app directly.
+     That connection belongs to the simulator's own user, not to the user of a WattPilot Connect
+     flow, so WattPilot does not pick it up.
    - `mode=live` requires a real vehicle account from a supported manufacturer, so it is not used
      for the shared demo.
 
