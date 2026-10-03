@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useForm, type DefaultValues } from 'react-hook-form'
+import { useForm, useWatch, type DefaultValues } from 'react-hook-form'
 import { Link } from 'react-router'
 import { AlertCircleIcon } from 'lucide-react'
 
@@ -23,6 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { useVehicleConnectionQuery, useVehicleTelemetryQuery } from '@/features/ev/queries'
 import type { Ev } from '@/features/ev/types'
 import { applyFieldErrors } from '@/lib/error-message'
 import { PRICE_AREAS, priceAreaLabel } from '@/lib/price-area'
@@ -79,6 +80,38 @@ export function ChargingConditionsForm({
   })
 
   const minDeadline = toDatetimeLocalValue(new Date())
+
+  const selectedEvId = useWatch({ control: form.control, name: 'evId' })
+  const evIdNumber = selectedEvId ? Number(selectedEvId) : Number.NaN
+  const connectionQuery = useVehicleConnectionQuery(evIdNumber)
+  const telemetryQuery = useVehicleTelemetryQuery(evIdNumber, Boolean(connectionQuery.data))
+  const vehicleSoc = telemetryQuery.data?.stateOfChargePercent ?? null
+  const vehicleReadAt = telemetryQuery.data?.retrievedAt
+  const autofilledRef = useRef(false)
+
+  // A value copied from the previous EV's vehicle must not leak into another EV's form.
+  useEffect(() => {
+    if (autofilledRef.current) {
+      form.setValue('currentBatteryPercent', '')
+      autofilledRef.current = false
+    }
+  }, [selectedEvId, form])
+
+  // Only fills an untouched field; a value the user typed is never overwritten.
+  useEffect(() => {
+    if (vehicleSoc === null || form.getFieldState('currentBatteryPercent').isDirty) return
+    form.setValue('currentBatteryPercent', String(Math.round(vehicleSoc)))
+    autofilledRef.current = true
+  }, [vehicleSoc, vehicleReadAt, selectedEvId, form])
+
+  const currentBatteryHint = (() => {
+    if (connectionQuery.data) {
+      if (telemetryQuery.isPending) return 'Reading the battery level from your vehicle…'
+      if (telemetryQuery.isError) return 'Could not read your vehicle. Enter the level manually.'
+      if (vehicleSoc !== null) return 'Filled from your connected vehicle (Smartcar). You can edit it.'
+    }
+    return 'Where the battery is right now.'
+  })()
 
   if (evs.length === 0) {
     return (
@@ -152,7 +185,7 @@ export function ChargingConditionsForm({
                     {...field}
                   />
                 </FormControl>
-                <FormDescription>Where the battery is right now.</FormDescription>
+                <FormDescription>{currentBatteryHint}</FormDescription>
                 <FormMessage />
               </FormItem>
             )}
