@@ -59,6 +59,7 @@ class EvApiIntegrationTest {
                 .andExpect(jsonPath("$.id").isNumber())
                 .andExpect(jsonPath("$.name").value("My i4"))
                 .andExpect(jsonPath("$.status").value("ACTIVE"))
+                .andExpect(jsonPath("$.locked").value(false))
                 .andExpect(jsonPath("$.batteryCapacityKwh").value(81.1))
                 .andExpect(jsonPath("$.userId").doesNotExist());
     }
@@ -192,7 +193,7 @@ class EvApiIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.name").value("Demo car"))
                 .andExpect(jsonPath("$.status").value("ACTIVE"))
-                .andExpect(jsonPath("$.locked").doesNotExist());
+                .andExpect(jsonPath("$.locked").value(true));
     }
 
     private String signUpAndToken() throws Exception {

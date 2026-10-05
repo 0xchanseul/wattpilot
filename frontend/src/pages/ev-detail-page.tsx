@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { EvStatusBadge } from '@/features/ev/components/ev-status-badge'
 import { VehicleTelemetryCard } from '@/features/ev/components/vehicle-telemetry-card'
+import { LOCKED_EV_DELETE_MESSAGE, LOCKED_EV_EDIT_MESSAGE } from '@/features/ev/locked-ev-messages'
 import {
   useDeactivateEvMutation,
   useEvQuery,
@@ -83,7 +84,7 @@ export function EvDetailPage() {
             </CardContent>
           </Card>
 
-          {ev.status === 'ACTIVE' ? <VehicleTelemetryCard evId={ev.id} /> : null}
+          {ev.status === 'ACTIVE' ? <VehicleTelemetryCard evId={ev.id} locked={ev.locked} /> : null}
 
           {ev.status === 'ACTIVE' ? (
             <div className="flex flex-wrap items-center gap-3">
@@ -92,11 +93,17 @@ export function EvDetailPage() {
                   <ZapIcon /> Plan charging
                 </Link>
               </Button>
-              <Button asChild variant="outline">
-                <Link to={`/evs/${ev.id}/edit`}>
+              {ev.locked ? (
+                <Button variant="outline" onClick={() => toast.error(LOCKED_EV_EDIT_MESSAGE)}>
                   <PencilIcon /> Edit
-                </Link>
-              </Button>
+                </Button>
+              ) : (
+                <Button asChild variant="outline">
+                  <Link to={`/evs/${ev.id}/edit`}>
+                    <PencilIcon /> Edit
+                  </Link>
+                </Button>
+              )}
 
               {confirmingDeactivate ? (
                 <div className="flex items-center gap-2">
@@ -119,7 +126,12 @@ export function EvDetailPage() {
                   </Button>
                 </div>
               ) : (
-                <Button variant="ghost" onClick={() => setConfirmingDeactivate(true)}>
+                <Button
+                  variant="ghost"
+                  onClick={() =>
+                    ev.locked ? toast.error(LOCKED_EV_DELETE_MESSAGE) : setConfirmingDeactivate(true)
+                  }
+                >
                   Deactivate
                 </Button>
               )}

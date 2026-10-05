@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { errorMessage } from '@/lib/error-message'
+import { LOCKED_EV_DISCONNECT_MESSAGE } from '../locked-ev-messages'
 import {
   useDisconnectVehicleMutation,
   useVehicleConnectUrlMutation,
@@ -20,7 +21,7 @@ import { VehicleChargeStateBadge } from './vehicle-charge-state-badge'
  * to Mock Charging execution - it only displays the real vehicle's own reported state, which may
  * legitimately disagree with WattPilot's simulated charging progress (see docs/mvp-scope.md).
  */
-export function VehicleTelemetryCard({ evId }: { evId: number }) {
+export function VehicleTelemetryCard({ evId, locked = false }: { evId: number; locked?: boolean }) {
   const connectionQuery = useVehicleConnectionQuery(evId)
   const connected = Boolean(connectionQuery.data)
   const telemetryQuery = useVehicleTelemetryQuery(evId, connected)
@@ -136,7 +137,13 @@ export function VehicleTelemetryCard({ evId }: { evId: number }) {
                 </Button>
               </div>
             ) : (
-              <Button variant="ghost" size="sm" onClick={() => setConfirmingDisconnect(true)}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() =>
+                  locked ? toast.error(LOCKED_EV_DISCONNECT_MESSAGE) : setConfirmingDisconnect(true)
+                }
+              >
                 Disconnect
               </Button>
             )}

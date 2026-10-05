@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { ChevronLeftIcon } from 'lucide-react'
 import { toast } from 'sonner'
@@ -6,6 +7,7 @@ import { ApiErrorAlert } from '@/components/api-error-alert'
 import { Skeleton } from '@/components/ui/skeleton'
 import { EvForm } from '@/features/ev/components/ev-form'
 import type { EvFormValues } from '@/features/ev/schema'
+import { LOCKED_EV_EDIT_MESSAGE } from '@/features/ev/locked-ev-messages'
 import { useEvQuery, useUpdateEvMutation } from '@/features/ev/queries'
 import type { CreateEvInput, Ev, UpdateEvInput } from '@/features/ev/types'
 
@@ -40,6 +42,14 @@ export function EvEditPage() {
   const navigate = useNavigate()
   const { data: ev, isPending, isError, error } = useEvQuery(id)
   const mutation = useUpdateEvMutation(id)
+  const locked = ev?.locked ?? false
+
+  useEffect(() => {
+    if (locked) {
+      toast.error(LOCKED_EV_EDIT_MESSAGE)
+      navigate(`/evs/${id}`, { replace: true })
+    }
+  }, [locked, id, navigate])
 
   const handleSubmit = async (payload: CreateEvInput) => {
     if (!ev) return
@@ -65,7 +75,7 @@ export function EvEditPage() {
 
       {isPending ? <Skeleton className="h-96 w-full" /> : null}
       {isError ? <ApiErrorAlert error={error} title="Could not load this EV" /> : null}
-      {ev ? (
+      {ev && !locked ? (
         <EvForm
           defaultValues={toFormValues(ev)}
           submitLabel="Save changes"

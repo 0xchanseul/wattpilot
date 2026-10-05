@@ -8,7 +8,8 @@ import java.time.OffsetDateTime;
 
 /**
  * Public view of an EV. Matches the {@code Ev} schema in docs/openapi.yaml and deliberately omits
- * the owning user id.
+ * the owning user id. {@code locked} is read-only: it lets the client explain a blocked action up
+ * front instead of waiting for a 403.
  */
 public record EvResponse(
         Long id,
@@ -19,6 +20,7 @@ public record EvResponse(
         BigDecimal maxAcChargingPowerKw,
         BigDecimal defaultChargerPowerKw,
         EvStatus status,
+        boolean locked,
         OffsetDateTime createdAt,
         OffsetDateTime updatedAt
 ) {
@@ -33,6 +35,7 @@ public record EvResponse(
                 ev.getMaxAcChargingPowerKw(),
                 ev.getDefaultChargerPowerKw(),
                 ev.getStatus(),
+                ev.isLocked(),
                 ev.getCreatedAt(),
                 ev.getUpdatedAt());
     }

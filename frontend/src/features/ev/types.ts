@@ -9,6 +9,8 @@ export interface Ev {
   maxAcChargingPowerKw: number
   defaultChargerPowerKw: number
   status: EvStatus
+  /** Read-only: a fixed demo EV that cannot be edited, deactivated or disconnected. */
+  locked: boolean
   createdAt: string
   updatedAt: string
 }
