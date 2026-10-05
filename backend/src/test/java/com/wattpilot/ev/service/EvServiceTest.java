@@ -31,6 +31,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -147,6 +148,37 @@ class EvServiceTest {
     }
 
     @Test
+    void updateOnALockedEvIsRejectedAndChangesNothing() {
+        Ev ev = lockedEv();
+        when(evRepository.findByIdAndUserId(EV_ID, USER_ID)).thenReturn(Optional.of(ev));
+
+        assertThatThrownBy(() -> evService.update(USER_ID, EV_ID,
+                new UpdateEvRequest("Renamed", null, null, null, null, null, EvStatus.INACTIVE)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("This demo EV cannot be edited.")
+                .extracting(ex -> ((BusinessException) ex).errorCode())
+                .isEqualTo(ErrorCode.EV_LOCKED);
+
+        assertThat(ev.getName()).isEqualTo("My i4");
+        assertThat(ev.getStatus()).isEqualTo(EvStatus.ACTIVE);
+    }
+
+    @Test
+    void deactivateOnALockedEvIsRejectedAndKeepsItsVehicleConnection() {
+        Ev ev = lockedEv();
+        when(evRepository.findByIdAndUserId(EV_ID, USER_ID)).thenReturn(Optional.of(ev));
+
+        assertThatThrownBy(() -> evService.deactivate(USER_ID, EV_ID))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("This demo EV cannot be deleted.")
+                .extracting(ex -> ((BusinessException) ex).errorCode())
+                .isEqualTo(ErrorCode.EV_LOCKED);
+
+        assertThat(ev.getStatus()).isEqualTo(EvStatus.ACTIVE);
+        verifyNoInteractions(vehicleConnectionRemover);
+    }
+
+    @Test
     void listWithoutAStatusFilterQueriesActiveEvsOnly() {
         Pageable pageable = PageRequest.of(0, 20);
         when(evRepository.findByUserIdAndStatus(eq(USER_ID), eq(EvStatus.ACTIVE), any(Pageable.class)))
@@ -170,6 +202,12 @@ class EvServiceTest {
         assertThat(captor.getValue().getSort()).isEqualTo(Sort.by(Sort.Direction.DESC, "createdAt"));
         assertThat(captor.getValue().getPageNumber()).isEqualTo(3);
         assertThat(captor.getValue().getPageSize()).isEqualTo(7);
+    }
+
+    private static Ev lockedEv() {
+        Ev ev = activeEv();
+        ReflectionTestUtils.setField(ev, "locked", true);
+        return ev;
     }
 
     private static Ev activeEv() {

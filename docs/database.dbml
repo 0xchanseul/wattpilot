@@ -96,6 +96,7 @@ Table evs {
   max_ac_charging_power_kw decimal(8,2) [not null]
   default_charger_power_kw decimal(8,2) [not null]
   status ev_status [not null, default: 'ACTIVE']
+  locked boolean [not null, default: false, note: 'A locked EV cannot be edited, deactivated or have its vehicle connection removed through the API (403 EV_LOCKED). Used for the fixed EVs of the shared demo account. Set directly in the database; no API writes or exposes it.']
   created_at timestamptz [not null]
   updated_at timestamptz [not null]
 

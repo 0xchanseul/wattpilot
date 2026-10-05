@@ -210,6 +210,9 @@ paths:
     patch:
       tags: [EV]
       summary: Update an EV
+      description: >-
+        Returns 403 `EV_LOCKED` for a locked EV (a fixed demo vehicle of the shared demo account).
+        The lock is set directly in the database and is not exposed or changeable through the API.
       operationId: updateEv
       requestBody:
         required: true
@@ -224,17 +227,20 @@ paths:
               schema: { $ref: '#/components/schemas/Ev' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
     delete:
       tags: [EV]
       summary: Deactivate an EV
       description: >-
         Soft-deletes the EV by changing its status to INACTIVE. Also removes its vehicle connection,
-        if any, so a hidden EV never keeps a live Smartcar link.
+        if any, so a hidden EV never keeps a live Smartcar link. Returns 403 `EV_LOCKED` for a
+        locked EV.
       operationId: deleteEv
       responses:
         '204': { description: EV deactivated }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
   /evs/{evId}/vehicle-connection/connect-url:
@@ -305,11 +311,13 @@ paths:
       description: >-
         Deletes the link. Removing the connection on Smartcar's side is best-effort: the link is
         always deleted locally regardless of Smartcar's response, so a user is never stuck with a
-        link they cannot remove because Smartcar is unreachable.
+        link they cannot remove because Smartcar is unreachable. Returns 403 `EV_LOCKED` when the EV
+        is locked, because removing the connection also removes it on Smartcar's side.
       operationId: deleteVehicleConnection
       responses:
         '204': { description: Vehicle connection removed }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
   /evs/{evId}/vehicle-connection/telemetry:
@@ -915,6 +923,11 @@ components:
           schema: { $ref: '#/components/schemas/ErrorResponse' }
     Unauthorized:
       description: Authentication required or token invalid
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Forbidden:
+      description: The action is not allowed on this resource (for example, a locked demo EV)
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/ErrorResponse' }

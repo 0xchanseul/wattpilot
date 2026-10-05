@@ -65,6 +65,10 @@ public class Ev {
     @Column(name = "status", nullable = false, columnDefinition = "ev_status")
     private EvStatus status;
 
+    // Set only directly in the database (the shared demo account's fixed EVs); no API writes it.
+    @Column(name = "locked", nullable = false, insertable = false, updatable = false)
+    private boolean locked;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;

@@ -8,6 +8,7 @@ import com.wattpilot.ev.dto.VehicleConnectCandidatesRequest;
 import com.wattpilot.ev.dto.VehicleConnectCandidatesResponse;
 import com.wattpilot.ev.dto.VehicleConnectionResponse;
 import com.wattpilot.ev.dto.VehicleTelemetryResponse;
+import com.wattpilot.ev.entity.Ev;
 import com.wattpilot.ev.entity.VehicleConnection;
 import com.wattpilot.ev.repository.VehicleConnectionRepository;
 import com.wattpilot.integration.smartcar.SmartcarClient;
@@ -118,7 +119,8 @@ public class VehicleConnectionService {
 
     @Transactional
     public void disconnect(Long userId, Long evId) {
-        evService.getActiveOwnedEv(userId, evId);
+        Ev ev = evService.getActiveOwnedEv(userId, evId);
+        EvService.requireUnlocked(ev, "The vehicle connection of this demo EV cannot be removed.");
         VehicleConnection connection = getOwnedConnection(evId, userId);
         remover.remove(connection);
     }

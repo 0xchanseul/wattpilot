@@ -7,6 +7,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.RequestBuilder;
@@ -44,6 +45,9 @@ class EvApiIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @Test
     void registeringAnEvReturnsItWithALocationHeaderAndNoOwnerField() throws Exception {
@@ -156,6 +160,39 @@ class EvApiIntegrationTest {
                 .andExpect(jsonPath("$.defaultChargerPowerKw").value(3.6))
                 .andExpect(jsonPath("$.manufacturer").value("BMW"))
                 .andExpect(jsonPath("$.maxAcChargingPowerKw").value(11));
+    }
+
+    @Test
+    void aLockedEvCannotBeEditedDeletedOrDisconnectedButCanStillBeRead() throws Exception {
+        String token = signUpAndToken();
+        long evId = createEvAndReturnId(token, "Demo car");
+        jdbcTemplate.update("UPDATE evs SET locked = true WHERE id = ?", evId);
+
+        mockMvc.perform(patch("/api/v1/evs/" + evId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"name":"Renamed"}
+                                """))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("EV_LOCKED"))
+                .andExpect(jsonPath("$.message").value("This demo EV cannot be edited."));
+
+        mockMvc.perform(delete("/api/v1/evs/" + evId).header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("EV_LOCKED"))
+                .andExpect(jsonPath("$.message").value("This demo EV cannot be deleted."));
+
+        mockMvc.perform(delete("/api/v1/evs/" + evId + "/vehicle-connection")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("EV_LOCKED"));
+
+        mockMvc.perform(get("/api/v1/evs/" + evId).header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("Demo car"))
+                .andExpect(jsonPath("$.status").value("ACTIVE"))
+                .andExpect(jsonPath("$.locked").doesNotExist());
     }
 
     private String signUpAndToken() throws Exception {

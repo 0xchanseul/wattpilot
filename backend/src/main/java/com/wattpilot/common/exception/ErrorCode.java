@@ -28,6 +28,8 @@ public enum ErrorCode {
     // An EV that does not exist, or exists but is owned by another account: both are reported the
     // same way so the API cannot be used to probe which EV ids exist.
     EV_NOT_FOUND(HttpStatus.NOT_FOUND, "EV not found."),
+    // A locked EV (a fixed demo vehicle) cannot be edited, deleted or disconnected from Smartcar.
+    EV_LOCKED(HttpStatus.FORBIDDEN, "This demo EV cannot be changed."),
 
     // No stored electricity price covers the requested area and time.
     ELECTRICITY_PRICE_NOT_FOUND(HttpStatus.NOT_FOUND, "No electricity price is available for the requested area and time."),

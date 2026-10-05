@@ -4,6 +4,7 @@ import com.wattpilot.common.exception.BusinessException;
 import com.wattpilot.common.exception.ErrorCode;
 import com.wattpilot.ev.dto.LinkVehicleConnectionRequest;
 import com.wattpilot.ev.dto.VehicleConnectionResponse;
+import com.wattpilot.ev.entity.Ev;
 import com.wattpilot.ev.entity.VehicleConnection;
 import com.wattpilot.ev.repository.VehicleConnectionRepository;
 import com.wattpilot.integration.smartcar.SmartcarClient;
@@ -15,7 +16,9 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
@@ -43,6 +46,14 @@ class VehicleConnectionServiceTest {
     private SmartcarConnectStateService stateService;
     @Mock
     private VehicleConnectionRemover remover;
+
+    private static Ev ev(boolean locked) {
+        Ev ev = Ev.register(USER_ID, "My i4", "BMW", "i4 eDrive40",
+                new BigDecimal("81.10"), new BigDecimal("11.00"), new BigDecimal("7.40"));
+        ReflectionTestUtils.setField(ev, "id", EV_ID);
+        ReflectionTestUtils.setField(ev, "locked", locked);
+        return ev;
+    }
 
     private VehicleConnectionService service(boolean enabled) {
         SmartcarProperties properties = enabled
@@ -162,6 +173,7 @@ class VehicleConnectionServiceTest {
         VehicleConnectionService service = service(true);
         VehicleConnection connection = VehicleConnection.link(
                 USER_ID, EV_ID, "sc-user", "veh-1", "conn-1", "Tesla", "Model 3", 2023);
+        when(evService.getActiveOwnedEv(USER_ID, EV_ID)).thenReturn(ev(false));
         when(vehicleConnectionRepository.findByEvIdAndUserId(EV_ID, USER_ID)).thenReturn(Optional.of(connection));
 
         service.disconnect(USER_ID, EV_ID);
@@ -170,8 +182,23 @@ class VehicleConnectionServiceTest {
     }
 
     @Test
+    void disconnectOnALockedEvIsRejectedAndKeepsTheConnection() {
+        VehicleConnectionService service = service(true);
+        when(evService.getActiveOwnedEv(USER_ID, EV_ID)).thenReturn(ev(true));
+
+        assertThatThrownBy(() -> service.disconnect(USER_ID, EV_ID))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("The vehicle connection of this demo EV cannot be removed.")
+                .extracting(ex -> ((BusinessException) ex).errorCode())
+                .isEqualTo(ErrorCode.EV_LOCKED);
+
+        verifyNoInteractions(remover);
+    }
+
+    @Test
     void disconnectOnAnUnlinkedEvIsNotFound() {
         VehicleConnectionService service = service(true);
+        when(evService.getActiveOwnedEv(USER_ID, EV_ID)).thenReturn(ev(false));
         when(vehicleConnectionRepository.findByEvIdAndUserId(EV_ID, USER_ID)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.disconnect(USER_ID, EV_ID))

@@ -91,6 +91,7 @@ public class EvService {
     @Transactional
     public EvResponse update(Long userId, Long evId, UpdateEvRequest request) {
         Ev ev = getOwnedEv(userId, evId);
+        requireUnlocked(ev, "This demo EV cannot be edited.");
         ev.updateProfile(
                 trimOrNull(request.name()),
                 trimOrNull(request.manufacturer()),
@@ -105,9 +106,21 @@ public class EvService {
 
     @Transactional
     public void deactivate(Long userId, Long evId) {
-        getOwnedEv(userId, evId).deactivate();
+        Ev ev = getOwnedEv(userId, evId);
+        requireUnlocked(ev, "This demo EV cannot be deleted.");
+        ev.deactivate();
         // A deactivated EV must never keep a live Smartcar link (see VehicleConnectionRemover).
         vehicleConnectionRemover.removeIfLinked(evId);
+    }
+
+    /**
+     * Rejects a change to a locked EV. Public so the vehicle-connection service can apply the same
+     * rule to disconnecting a vehicle without duplicating the check.
+     */
+    public static void requireUnlocked(Ev ev, String message) {
+        if (ev.isLocked()) {
+            throw new BusinessException(ErrorCode.EV_LOCKED, message);
+        }
     }
 
     private Ev getOwnedEv(Long userId, Long evId) {
