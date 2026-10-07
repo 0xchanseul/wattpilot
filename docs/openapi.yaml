@@ -85,8 +85,9 @@ paths:
         signing up. No request body. The account is pre-loaded with copies of the template demo
         account's EVs: each copy is a new locked EV (`locked: true`) and, where the template EV has
         a vehicle connection, it points at the same Smartcar vehicle, so telemetry works without a
-        Connect login. The account is private to the visitor, so their charging schedules never
-        conflict with another visitor's. It is deleted automatically after a fixed lifetime, and the
+        Connect login. The template's finished charges (`COMPLETED` or `FAILED`) are copied as well,
+        so charging history, dashboard and savings are not empty. The account is private to the
+        visitor, so their charging schedules never conflict with another visitor's. It is deleted automatically after a fixed lifetime, and the
         session never outlives it.
 
 

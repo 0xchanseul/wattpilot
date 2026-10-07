@@ -1,6 +1,7 @@
 package com.wattpilot.auth.service;
 
 import com.wattpilot.auth.DemoProperties;
+import com.wattpilot.charging.service.DemoChargingHistoryService;
 import com.wattpilot.common.exception.BusinessException;
 import com.wattpilot.common.exception.ErrorCode;
 import com.wattpilot.ev.service.DemoEvService;
@@ -12,6 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
+import java.util.Map;
 
 /**
  * Creates the temporary visitor accounts behind the demo login.
@@ -27,11 +29,14 @@ public class DemoAccountService {
     private final DemoProperties properties;
     private final UserService userService;
     private final DemoEvService demoEvService;
+    private final DemoChargingHistoryService demoChargingHistoryService;
 
-    public DemoAccountService(DemoProperties properties, UserService userService, DemoEvService demoEvService) {
+    public DemoAccountService(DemoProperties properties, UserService userService, DemoEvService demoEvService,
+                              DemoChargingHistoryService demoChargingHistoryService) {
         this.properties = properties;
         this.userService = userService;
         this.demoEvService = demoEvService;
+        this.demoChargingHistoryService = demoChargingHistoryService;
     }
 
     public Duration accountLifetime() {
@@ -58,12 +63,14 @@ public class DemoAccountService {
         }
 
         User visitor = userService.registerDemo(template.getDefaultPriceArea());
-        if (demoEvService.copyDemoEvs(template.getId(), visitor.getId()) == 0) {
+        Map<Long, Long> copiedEvs = demoEvService.copyDemoEvs(template.getId(), visitor.getId());
+        if (copiedEvs.isEmpty()) {
             // A demo account with nothing to show is a misconfiguration, so it is not handed out;
             // the exception rolls back the visitor created above.
             log.warn("Demo login is enabled but the template account has no active EV");
             throw new BusinessException(ErrorCode.DEMO_UNAVAILABLE);
         }
+        demoChargingHistoryService.copyFinishedHistory(template.getId(), visitor.getId(), copiedEvs);
         return visitor;
     }
 }

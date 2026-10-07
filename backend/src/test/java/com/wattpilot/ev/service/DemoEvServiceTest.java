@@ -15,6 +15,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -43,15 +44,20 @@ class DemoEvServiceTest {
         Ev template = templateEv(10L);
         when(evRepository.findByUserIdAndStatusOrderById(TEMPLATE_USER_ID, EvStatus.ACTIVE))
                 .thenReturn(List.of(template));
-        when(evRepository.save(any(Ev.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(evRepository.save(any(Ev.class))).thenAnswer(invocation -> {
+            Ev saved = invocation.getArgument(0);
+            ReflectionTestUtils.setField(saved, "id", 20L);
+            return saved;
+        });
         when(vehicleConnectionRepository.findByEvId(10L)).thenReturn(Optional.empty());
 
-        int copied = demoEvService.copyDemoEvs(TEMPLATE_USER_ID, VISITOR_USER_ID);
+        Map<Long, Long> copied = demoEvService.copyDemoEvs(TEMPLATE_USER_ID, VISITOR_USER_ID);
 
-        assertThat(copied).isEqualTo(1);
         ArgumentCaptor<Ev> captor = ArgumentCaptor.forClass(Ev.class);
         verify(evRepository).save(captor.capture());
         Ev copy = captor.getValue();
+        // The map is what lets the charging history follow each template EV onto its copy.
+        assertThat(copied).containsExactly(Map.entry(10L, 20L));
         assertThat(copy.getUserId()).isEqualTo(VISITOR_USER_ID);
         assertThat(copy.isLocked()).isTrue();
         assertThat(copy.getStatus()).isEqualTo(EvStatus.ACTIVE);
@@ -98,7 +104,7 @@ class DemoEvServiceTest {
         when(evRepository.findByUserIdAndStatusOrderById(TEMPLATE_USER_ID, EvStatus.ACTIVE))
                 .thenReturn(List.of());
 
-        assertThat(demoEvService.copyDemoEvs(TEMPLATE_USER_ID, VISITOR_USER_ID)).isZero();
+        assertThat(demoEvService.copyDemoEvs(TEMPLATE_USER_ID, VISITOR_USER_ID)).isEmpty();
         verify(evRepository, never()).save(any(Ev.class));
     }
 

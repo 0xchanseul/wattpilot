@@ -8,7 +8,9 @@ import com.wattpilot.ev.repository.VehicleConnectionRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Gives a demo visitor their own copies of the template demo account's EVs.
@@ -28,10 +30,14 @@ public class DemoEvService {
         this.vehicleConnectionRepository = vehicleConnectionRepository;
     }
 
-    /** @return the number of EVs copied */
+    /**
+     * @return the visitor's copy of each template EV, keyed by the template EV's id; empty if the
+     *         template has no active EV
+     */
     @Transactional
-    public int copyDemoEvs(Long templateUserId, Long visitorUserId) {
+    public Map<Long, Long> copyDemoEvs(Long templateUserId, Long visitorUserId) {
         List<Ev> templates = evRepository.findByUserIdAndStatusOrderById(templateUserId, EvStatus.ACTIVE);
+        Map<Long, Long> copyIdByTemplateId = new LinkedHashMap<>();
         for (Ev template : templates) {
             Ev copy = evRepository.save(Ev.registerLocked(
                     visitorUserId,
@@ -43,8 +49,9 @@ public class DemoEvService {
                     template.getDefaultChargerPowerKw()));
             vehicleConnectionRepository.findByEvId(template.getId())
                     .ifPresent(connection -> copyConnection(connection, visitorUserId, copy.getId()));
+            copyIdByTemplateId.put(template.getId(), copy.getId());
         }
-        return templates.size();
+        return copyIdByTemplateId;
     }
 
     private void copyConnection(VehicleConnection template, Long visitorUserId, Long evId) {

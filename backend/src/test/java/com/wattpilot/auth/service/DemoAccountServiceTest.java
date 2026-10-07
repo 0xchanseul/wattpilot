@@ -1,6 +1,7 @@
 package com.wattpilot.auth.service;
 
 import com.wattpilot.auth.DemoProperties;
+import com.wattpilot.charging.service.DemoChargingHistoryService;
 import com.wattpilot.common.PriceArea;
 import com.wattpilot.common.exception.BusinessException;
 import com.wattpilot.common.exception.ErrorCode;
@@ -14,6 +15,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Duration;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -37,6 +39,9 @@ class DemoAccountServiceTest {
     @Mock
     private DemoEvService demoEvService;
 
+    @Mock
+    private DemoChargingHistoryService demoChargingHistoryService;
+
     @Test
     void aDisabledDemoIsUnavailableAndTouchesNothing() {
         DemoAccountService service = serviceWith(false, 200);
@@ -45,7 +50,7 @@ class DemoAccountServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting(ex -> ((BusinessException) ex).errorCode())
                 .isEqualTo(ErrorCode.DEMO_UNAVAILABLE);
-        verifyNoInteractions(userService, demoEvService);
+        verifyNoInteractions(userService, demoEvService, demoChargingHistoryService);
     }
 
     @Test
@@ -76,26 +81,29 @@ class DemoAccountServiceTest {
         when(userService.findByEmail(TEMPLATE_EMAIL)).thenReturn(Optional.of(user(TEMPLATE_ID)));
         when(userService.countDemoAccounts()).thenReturn(0L);
         when(userService.registerDemo(PriceArea.NO3)).thenReturn(user(VISITOR_ID));
-        when(demoEvService.copyDemoEvs(TEMPLATE_ID, VISITOR_ID)).thenReturn(0);
+        when(demoEvService.copyDemoEvs(TEMPLATE_ID, VISITOR_ID)).thenReturn(Map.of());
 
         assertThatThrownBy(serviceWith(true, 200)::createAccount)
                 .isInstanceOf(BusinessException.class)
                 .extracting(ex -> ((BusinessException) ex).errorCode())
                 .isEqualTo(ErrorCode.DEMO_UNAVAILABLE);
+        verifyNoInteractions(demoChargingHistoryService);
     }
 
     @Test
-    void aVisitorAccountInheritsThePriceAreaAndReceivesCopiesOfTheTemplateEvs() {
+    void aVisitorAccountInheritsThePriceAreaAndReceivesCopiesOfTheTemplateEvsAndTheirHistory() {
         when(userService.findByEmail(TEMPLATE_EMAIL)).thenReturn(Optional.of(user(TEMPLATE_ID)));
         when(userService.countDemoAccounts()).thenReturn(4L);
         User visitor = user(VISITOR_ID);
         when(userService.registerDemo(PriceArea.NO3)).thenReturn(visitor);
-        when(demoEvService.copyDemoEvs(TEMPLATE_ID, VISITOR_ID)).thenReturn(2);
+        Map<Long, Long> copiedEvs = Map.of(10L, 20L, 11L, 21L);
+        when(demoEvService.copyDemoEvs(TEMPLATE_ID, VISITOR_ID)).thenReturn(copiedEvs);
 
         User created = serviceWith(true, 5).createAccount();
 
         assertThat(created).isSameAs(visitor);
         verify(demoEvService).copyDemoEvs(TEMPLATE_ID, VISITOR_ID);
+        verify(demoChargingHistoryService).copyFinishedHistory(TEMPLATE_ID, VISITOR_ID, copiedEvs);
     }
 
     @Test
@@ -106,7 +114,7 @@ class DemoAccountServiceTest {
     private DemoAccountService serviceWith(boolean enabled, int maxActiveAccounts) {
         return new DemoAccountService(
                 new DemoProperties(enabled, TEMPLATE_EMAIL, Duration.ofHours(24), maxActiveAccounts, 200),
-                userService, demoEvService);
+                userService, demoEvService, demoChargingHistoryService);
     }
 
     private static User user(long id) {

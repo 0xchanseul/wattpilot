@@ -300,6 +300,8 @@ AuthService.startDemoSession        // session lifetime = min(session-ttl, demo 
 DemoAccountService.createAccount    // template lookup, capacity check, demo user
         ↓
 DemoEvService.copyDemoEvs           // ev module: locked EV copies + vehicle_connections copies
+        ↓
+DemoChargingHistoryService          // charging module: finished charges onto the EV copies
 ```
 
 - **One account per visitor.** Each login creates a temporary user (`users.demo = true`, an
@@ -309,6 +311,13 @@ DemoEvService.copyDemoEvs           // ev module: locked EV copies + vehicle_con
 - **Shared Smartcar vehicle.** A vehicle connection row is copied as is. Smartcar API v3 uses one
   application-level token scoped per request by `smartcar_user_id`, so every copy reads the same
   simulated vehicle, and the shared connection id is why a locked EV can never be disconnected.
+- **Copied history.** So the history, dashboard and savings screens are not empty, a visitor also
+  receives the template's finished charges (schedules whose session is `COMPLETED` or `FAILED`),
+  with their plans and slots, onto the visitor's copy of the EV they were recorded for. Cancelled,
+  waiting and running schedules are never copied, so the execution scheduler has nothing to act on.
+  `DemoChargingHistoryRepository` does it as one native SQL statement rather than through the
+  entities, because every value must stay exactly as recorded: the history is ordered by `created_at`,
+  which an entity copy would reset to the time of the copy.
 - **Cleanup.** `DemoAccountCleanupScheduler` (`com.wattpilot.scheduler`, hourly) calls
   `DemoAccountCleanupService`, which deletes `demo = true` accounts older than `ttl` one at a time,
   each in its own transaction. Dependent rows go through `ON DELETE CASCADE`, so Smartcar is never

@@ -705,14 +705,14 @@ integration.
 
 Off by default everywhere (`DEMO_ENABLED` defaults to false). When on, the login page's "Try the
 demo" button calls `POST /auth/demo`, which creates a temporary account for the visitor, loaded with
-copies of a template account's EVs, and logs it in. Visitors never share an account, so one
-visitor's charging schedules cannot block another's. Each account is deleted automatically by an
-hourly cleanup job once it is older than `DEMO_TTL`.
+copies of a template account's EVs and finished charging history, and logs it in. Visitors never
+share an account, so one visitor's charging schedules cannot block another's. Each account is deleted
+automatically by an hourly cleanup job once it is older than `DEMO_TTL`.
 
 ### The template account
 
-The template is an ordinary account that already exists in the database; its active EVs are what
-every visitor receives a copy of. Prepare it once:
+The template is an ordinary account that already exists in the database; its active EVs, and the
+finished charges recorded for them, are what every visitor receives a copy of. Prepare it once:
 
 1. Sign up a new account in the app. It must keep `demo = false` (the default): the cleanup job
    deletes only accounts with `demo = true`, so the template can never be removed by it.
@@ -728,13 +728,26 @@ every visitor receives a copy of. Prepare it once:
 4. Optionally connect an EV to a Smartcar simulator vehicle through the normal "Connect vehicle"
    flow (see "Smartcar vehicle telemetry" above). The connection row is copied to every visitor's
    EV, so each demo account shows live telemetry without a Connect login.
-5. Check the result:
+5. Give it charging history, so the history, dashboard and savings screens are not empty for a
+   visitor. Either complete a few charges on the template through the app, or copy them from
+   another account (see below). Only finished charges are copied to visitors: a schedule whose
+   session is `COMPLETED` or `FAILED`. Cancelled, waiting and running schedules are never copied. A
+   template with no history is fine; visitors then start with empty history screens.
+6. Check the result:
    ```sql
    SELECT e.id, e.name, e.status, e.locked, (c.id IS NOT NULL) AS connected
    FROM evs e
    JOIN users u ON u.id = e.user_id
    LEFT JOIN vehicle_connections c ON c.ev_id = e.id
    WHERE u.email = '<template-email>';
+
+   SELECT ss.status, count(*)
+   FROM charging_sessions ss
+   JOIN charging_schedules s ON s.id = ss.charging_schedule_id
+   JOIN charging_plans p ON p.id = s.charging_plan_id
+   JOIN users u ON u.id = p.user_id
+   WHERE u.email = '<template-email>'
+   GROUP BY ss.status;
    ```
 
 To reuse an EV, with its Smartcar connection, from another account instead of connecting it again,
@@ -770,8 +783,90 @@ JOIN original o ON TRUE
 JOIN vehicle_connections c ON c.ev_id = o.id;
 
 -- Expect "INSERT 0 1" (more means the name matched several EVs). Check the template with the
--- query in step 5, then COMMIT; or ROLLBACK;
+-- first query in step 6, then COMMIT; or ROLLBACK;
 ```
+
+To reuse the finished charging history of another account, copy it onto the template's EV once that
+EV exists. This is the same statement the demo login runs for each visitor, so the copy is exact: all
+values and timestamps are kept, and the history screens order by those timestamps. Four tables are
+involved: `charging_plans`, `charging_plan_slots`, `charging_schedules` and `charging_sessions`. The
+copied slots point at the same `electricity_prices` rows as the originals. Find the four ids first
+(`SELECT id FROM users WHERE email = ...`, `SELECT id, name FROM evs WHERE user_id = ...`), then in `psql`:
+
+```sql
+\set sourceUserId <original-user-id>
+\set sourceEvId <original-ev-id>
+\set targetUserId <template-user-id>
+\set targetEvId <template-ev-id>
+
+BEGIN;
+
+WITH src AS (
+    SELECT p.id AS old_plan_id,
+           nextval(pg_get_serial_sequence('charging_plans', 'id')) AS new_plan_id,
+           s.id AS old_schedule_id,
+           nextval(pg_get_serial_sequence('charging_schedules', 'id')) AS new_schedule_id,
+           ss.id AS old_session_id
+    FROM charging_plans p
+    JOIN charging_schedules s ON s.charging_plan_id = p.id
+    JOIN charging_sessions ss ON ss.charging_schedule_id = s.id
+    WHERE p.user_id = :sourceUserId
+      AND p.ev_id = :sourceEvId
+      AND ss.status IN ('COMPLETED', 'FAILED')
+),
+new_plans AS (
+    INSERT INTO charging_plans (id, user_id, ev_id, current_battery_percent, target_battery_percent,
+        price_area, earliest_start_at, required_completion_at, ev_name, ev_manufacturer, ev_model,
+        battery_capacity_kwh, max_ac_charging_power_kw, default_charger_power_kw, calculated_energy_kwh,
+        effective_charging_power_kw, estimated_duration_minutes, recommended_start_at,
+        recommended_end_at, expected_energy_kwh, estimated_cost_nok, baseline_cost_nok,
+        expected_savings_nok, status, failure_reason, created_at, updated_at)
+    SELECT src.new_plan_id, :targetUserId, :targetEvId, p.current_battery_percent,
+        p.target_battery_percent, p.price_area, p.earliest_start_at, p.required_completion_at,
+        p.ev_name, p.ev_manufacturer, p.ev_model, p.battery_capacity_kwh, p.max_ac_charging_power_kw,
+        p.default_charger_power_kw, p.calculated_energy_kwh, p.effective_charging_power_kw,
+        p.estimated_duration_minutes, p.recommended_start_at, p.recommended_end_at,
+        p.expected_energy_kwh, p.estimated_cost_nok, p.baseline_cost_nok, p.expected_savings_nok,
+        p.status, p.failure_reason, p.created_at, p.updated_at
+    FROM src
+    JOIN charging_plans p ON p.id = src.old_plan_id
+),
+new_plan_slots AS (
+    INSERT INTO charging_plan_slots (charging_plan_id, electricity_price_id, slot_start_at,
+        slot_end_at, price_per_kwh, planned_energy_kwh, expected_cost_nok, sequence_no)
+    SELECT src.new_plan_id, sl.electricity_price_id, sl.slot_start_at, sl.slot_end_at,
+        sl.price_per_kwh, sl.planned_energy_kwh, sl.expected_cost_nok, sl.sequence_no
+    FROM src
+    JOIN charging_plan_slots sl ON sl.charging_plan_id = src.old_plan_id
+),
+new_schedules AS (
+    INSERT INTO charging_schedules (id, charging_plan_id, scheduled_start_at, scheduled_end_at,
+        expected_energy_kwh, estimated_cost_nok, status, retry_count, next_retry_at, created_at,
+        updated_at)
+    SELECT src.new_schedule_id, src.new_plan_id, s.scheduled_start_at, s.scheduled_end_at,
+        s.expected_energy_kwh, s.estimated_cost_nok, s.status, s.retry_count, s.next_retry_at,
+        s.created_at, s.updated_at
+    FROM src
+    JOIN charging_schedules s ON s.id = src.old_schedule_id
+)
+INSERT INTO charging_sessions (charging_schedule_id, started_at, completed_at, actual_energy_kwh,
+    actual_cost_nok, baseline_cost_nok, optimized_cost_nok, estimated_savings_nok, status,
+    failure_code, failure_reason, created_at, updated_at)
+SELECT src.new_schedule_id, ss.started_at, ss.completed_at, ss.actual_energy_kwh, ss.actual_cost_nok,
+    ss.baseline_cost_nok, ss.optimized_cost_nok, ss.estimated_savings_nok, ss.status, ss.failure_code,
+    ss.failure_reason, ss.created_at, ss.updated_at
+FROM src
+JOIN charging_sessions ss ON ss.id = src.old_session_id;
+
+-- Expect "INSERT 0 N", N being the number of finished charges copied. Check the template with the
+-- second query in step 6, then COMMIT; or ROLLBACK;
+```
+
+Run it once per EV, and only once: running it again copies the same charges a second time. Copied
+charges keep the dates they were recorded on. The dashboard's savings trend covers the last 30 days,
+so once the template's newest charges are older than that, a visitor's dashboard shows no trend while
+the history list still shows every charge. Complete or copy some newer charges onto the template
+before that happens.
 
 **Never disconnect or delete a vehicle that other accounts share.** The template, its visitor copies
 and the account the EV was copied from all use one Smartcar connection id. Disconnecting the EV, or
