@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router'
-import { InfoIcon, LogOutIcon, UserIcon } from 'lucide-react'
+import { InfoIcon, LogOutIcon, MessageSquareIcon, UserIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/features/auth/use-auth'
+import { FeedbackDialog } from '@/features/feedback/feedback-dialog'
 import { cn } from '@/lib/utils'
 
 const NAV_ITEMS = [
@@ -20,6 +21,7 @@ export function AppLayout() {
   const navigate = useNavigate()
   const location = useLocation()
   const [loggingOut, setLoggingOut] = useState(false)
+  const [feedbackOpen, setFeedbackOpen] = useState(false)
 
   const handleLogout = async () => {
     setLoggingOut(true)
@@ -37,7 +39,14 @@ export function AppLayout() {
       {user?.demo ? (
         <div className="bg-primary/10 text-foreground border-primary/20 border-b px-4 py-2 text-center text-sm">
           <InfoIcon className="mr-1.5 inline size-4 align-text-bottom" />
-          You are using a demo account. Your data is temporary and is deleted automatically.
+          You are using a demo account. Your data is temporary and is deleted automatically.{' '}
+          <button
+            type="button"
+            onClick={() => setFeedbackOpen(true)}
+            className="text-primary font-medium underline underline-offset-2"
+          >
+            Leave feedback
+          </button>
         </div>
       ) : null}
       <header className="border-border/70 bg-background/85 sticky top-0 z-40 border-b backdrop-blur-md">
@@ -147,6 +156,16 @@ export function AppLayout() {
       <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
         <Outlet />
       </main>
+      <Button
+        type="button"
+        onClick={() => setFeedbackOpen(true)}
+        aria-label="Send feedback"
+        className="fixed right-4 bottom-4 z-40 rounded-full shadow-lg sm:right-6 sm:bottom-6"
+      >
+        <MessageSquareIcon />
+        <span className="max-sm:hidden">Feedback</span>
+      </Button>
+      <FeedbackDialog open={feedbackOpen} onOpenChange={setFeedbackOpen} />
     </div>
   )
 }

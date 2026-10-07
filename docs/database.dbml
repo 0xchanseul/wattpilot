@@ -405,6 +405,17 @@ Table charging_sessions {
   }
 }
 
+Table feedback {
+  id bigint [pk, increment]
+  email varchar(255) [not null, note: 'Snapshot of the sender account email, not a foreign key: demo accounts are deleted automatically and their feedback must outlive them']
+  message text [not null]
+  created_at timestamptz [not null]
+
+  checks {
+    `char_length(message) BETWEEN 1 AND 2000` [name: 'feedback_message_length_valid']
+  }
+}
+
 // -------------------------
 // V1.5, implemented
 // -------------------------

@@ -30,6 +30,7 @@ tags:
   - { name: Charging History, description: Executed charging results and savings performance }
   - { name: Dashboard, description: Home-screen aggregate view }
   - { name: Savings, description: Cost and savings summaries }
+  - { name: Feedback, description: Visitor feedback }
 
 paths:
   /auth/signup:
@@ -175,6 +176,24 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/User' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /feedback:
+    post:
+      tags: [Feedback]
+      summary: Send feedback
+      description: >-
+        Stores a free-text message together with the sender's account email. Available to every
+        signed-in user, demo accounts included.
+      operationId: sendFeedback
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateFeedbackRequest' }
+      responses:
+        '204': { description: Feedback stored }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
@@ -996,6 +1015,12 @@ components:
           schema: { $ref: '#/components/schemas/ErrorResponse' }
 
   schemas:
+    CreateFeedbackRequest:
+      type: object
+      required: [message]
+      properties:
+        message: { type: string, minLength: 1, maxLength: 2000, description: Surrounding whitespace is trimmed; a blank message is rejected }
+
     PriceArea:
       type: string
       enum: [NO1, NO2, NO3, NO4, NO5]
