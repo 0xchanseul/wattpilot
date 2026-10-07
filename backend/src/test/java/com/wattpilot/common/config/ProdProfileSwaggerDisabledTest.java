@@ -9,6 +9,7 @@ import com.wattpilot.charging.repository.DemoChargingHistoryRepository;
 import com.wattpilot.dashboard.repository.DashboardRepository;
 import com.wattpilot.electricity.repository.ElectricityPriceRepository;
 import com.wattpilot.ev.repository.EvRepository;
+import com.wattpilot.feedback.repository.FeedbackRepository;
 import com.wattpilot.ev.repository.VehicleConnectionRepository;
 import com.wattpilot.ev.repository.VehicleModelRepository;
 import com.wattpilot.history.repository.ChargingHistoryRepository;
@@ -90,6 +91,9 @@ class ProdProfileSwaggerDisabledTest {
 
     @MockitoBean
     SavingsRepository savingsRepository;
+
+    @MockitoBean
+    FeedbackRepository feedbackRepository;
 
     @Test
     void apiDocsIsNotServedInProd() throws Exception {
