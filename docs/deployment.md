@@ -701,6 +701,129 @@ integration.
    - `mode=live` requires a real vehicle account from a supported manufacturer, so it is not used
      for the shared demo.
 
+## Demo login (optional)
+
+Off by default everywhere (`DEMO_ENABLED` defaults to false). When on, the login page's "Try the
+demo" button calls `POST /auth/demo`, which creates a temporary account for the visitor, loaded with
+copies of a template account's EVs, and logs it in. Visitors never share an account, so one
+visitor's charging schedules cannot block another's. Each account is deleted automatically by an
+hourly cleanup job once it is older than `DEMO_TTL`.
+
+### The template account
+
+The template is an ordinary account that already exists in the database; its active EVs are what
+every visitor receives a copy of. Prepare it once:
+
+1. Sign up a new account in the app. It must keep `demo = false` (the default): the cleanup job
+   deletes only accounts with `demo = true`, so the template can never be removed by it.
+2. Give it at least one ACTIVE EV, registered through the app or copied from another account (see
+   below). The demo is unavailable (503 `DEMO_UNAVAILABLE`) if the template has none.
+3. Lock its EVs, so a visitor cannot edit, deactivate or disconnect them:
+   ```sql
+   UPDATE evs SET locked = TRUE
+   WHERE user_id = (SELECT id FROM users WHERE email = '<template-email>');
+   ```
+   Every visitor copy is created locked regardless; locking the template's own EVs protects the
+   template itself.
+4. Optionally connect an EV to a Smartcar simulator vehicle through the normal "Connect vehicle"
+   flow (see "Smartcar vehicle telemetry" above). The connection row is copied to every visitor's
+   EV, so each demo account shows live telemetry without a Connect login.
+5. Check the result:
+   ```sql
+   SELECT e.id, e.name, e.status, e.locked, (c.id IS NOT NULL) AS connected
+   FROM evs e
+   JOIN users u ON u.id = e.user_id
+   LEFT JOIN vehicle_connections c ON c.ev_id = e.id
+   WHERE u.email = '<template-email>';
+   ```
+
+To reuse an EV, with its Smartcar connection, from another account instead of connecting it again,
+copy its `evs` row and its `vehicle_connections` row to the template. Only those two tables are
+involved; the connection row keeps the same Smartcar ids and gets the new EV's id. Run it in a
+transaction, check the result, then commit:
+
+```sql
+BEGIN;
+
+WITH original AS (
+    SELECT e.*
+    FROM evs e
+    JOIN users u ON u.id = e.user_id
+    WHERE u.email = '<original-email>' AND e.name = '<ev-name>'
+),
+new_ev AS (
+    INSERT INTO evs (user_id, name, manufacturer, model, battery_capacity_kwh,
+                     max_ac_charging_power_kw, default_charger_power_kw, locked, created_at, updated_at)
+    SELECT t.id, o.name, o.manufacturer, o.model, o.battery_capacity_kwh,
+           o.max_ac_charging_power_kw, o.default_charger_power_kw, TRUE, now(), now()
+    FROM original o, users t
+    WHERE t.email = '<template-email>'
+    RETURNING id, user_id
+)
+INSERT INTO vehicle_connections (user_id, ev_id, smartcar_user_id, smartcar_vehicle_id,
+                                 smartcar_connection_id, vehicle_make, vehicle_model, vehicle_year,
+                                 created_at, updated_at)
+SELECT n.user_id, n.id, c.smartcar_user_id, c.smartcar_vehicle_id, c.smartcar_connection_id,
+       c.vehicle_make, c.vehicle_model, c.vehicle_year, now(), now()
+FROM new_ev n
+JOIN original o ON TRUE
+JOIN vehicle_connections c ON c.ev_id = o.id;
+
+-- Expect "INSERT 0 1" (more means the name matched several EVs). Check the template with the
+-- query in step 5, then COMMIT; or ROLLBACK;
+```
+
+**Never disconnect or delete a vehicle that other accounts share.** The template, its visitor copies
+and the account the EV was copied from all use one Smartcar connection id. Disconnecting the EV, or
+deactivating it (which also removes the connection), asks Smartcar to delete that connection and
+ends telemetry for every one of them. Lock the original EV too to make the API refuse it:
+```sql
+UPDATE evs SET locked = TRUE WHERE id = <original-ev-id>;
+```
+
+### Enabling it
+
+Append to `/etc/wattpilot/wattpilot.env` on the VM, then `docker compose up -d` (see
+`deploy/azure/.env.example`):
+
+```
+DEMO_ENABLED=true
+DEMO_TEMPLATE_EMAIL=<template-email>
+# Optional; defaults shown.
+# DEMO_TTL=24h
+# DEMO_MAX_ACTIVE_ACCOUNTS=200
+# DEMO_CLEANUP_CRON=0 0 * * * *
+# DEMO_CLEANUP_BATCH_SIZE=200
+```
+
+Only the template's email is configured. The application never logs in as the template, so no
+password or token is needed. The backend refuses to start if `DEMO_ENABLED=true` and
+`DEMO_TEMPLATE_EMAIL` is empty.
+
+### Limits and cleanup
+
+- At most `DEMO_MAX_ACTIVE_ACCOUNTS` demo accounts exist at once; further demo logins get
+  429 `DEMO_CAPACITY_REACHED`.
+- nginx limits `POST /api/v1/auth/demo` to 5 requests per minute per client IP, with a burst of 5, so
+  a few quick clicks pass and a script does not (`deploy/azure/nginx/wattpilot.conf`). Over the limit
+  nginx answers 429 itself, with a JSON body the frontend can show. Visitors behind one NAT share
+  an IP and therefore the limit. After changing the file, install it as described in its header and
+  reload: `sudo nginx -t && sudo systemctl reload nginx`.
+- The cleanup runs hourly, so an account is deleted between `DEMO_TTL` and `DEMO_TTL` plus one hour
+  after it was created. An account with a charge in progress is skipped until the charge ends.
+  Deleting an account removes its EVs, vehicle connections and charging data through
+  `ON DELETE CASCADE`; Smartcar is never contacted.
+
+### Verifying
+
+```
+curl -i -X POST https://www.wattpilot.dev/api/v1/auth/demo
+```
+
+Expect `201` with an `accessToken` and a `wp_refresh_token` cookie. `503 DEMO_UNAVAILABLE` means the
+demo is off, or the template account is missing or has no active EV. Each call creates a real demo
+account that the cleanup deletes later.
+
 # Monitoring & Logging
 
 V1 uses a lightweight monitoring setup.
