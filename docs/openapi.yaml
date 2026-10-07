@@ -76,6 +76,36 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
+  /auth/demo:
+    post:
+      tags: [Auth]
+      summary: Start a demo session
+      description: >-
+        Creates a temporary demo account and logs it in, so a visitor can try the service without
+        signing up. No request body. The account is pre-loaded with copies of the template demo
+        account's EVs: each copy is a new locked EV (`locked: true`) and, where the template EV has
+        a vehicle connection, it points at the same Smartcar vehicle, so telemetry works without a
+        Connect login. The account is private to the visitor, so their charging schedules never
+        conflict with another visitor's. It is deleted automatically after a fixed lifetime, and the
+        session never outlives it.
+
+
+        Returns 429 `DEMO_CAPACITY_REACHED` when too many demo accounts exist at once, and 503
+        `DEMO_UNAVAILABLE` when the demo is turned off in this environment or its template account
+        is missing or has no active EV.
+      operationId: startDemoSession
+      security: []
+      responses:
+        '201':
+          description: Demo account created
+          headers:
+            Set-Cookie: { $ref: '#/components/headers/RefreshTokenCookie' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResponse' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
   /auth/refresh:
     post:
       tags: [Auth]
@@ -952,7 +982,14 @@ components:
         application/problem+json:
           schema: { $ref: '#/components/schemas/ErrorResponse' }
     ServiceUnavailable:
-      description: Vehicle telemetry is not configured in this environment
+      description: >-
+        The feature is not available in this environment (for example, vehicle telemetry is not
+        configured, or the demo login is off)
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    TooManyRequests:
+      description: Too many demo accounts are active right now
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/ErrorResponse' }
@@ -1049,13 +1086,19 @@ components:
 
     User:
       type: object
-      required: [id, email, name, defaultPriceArea, status, createdAt, updatedAt]
+      required: [id, email, name, defaultPriceArea, status, demo, createdAt, updatedAt]
       properties:
         id: { type: integer, format: int64, minimum: 1, example: 1 }
         email: { type: string, format: email }
         name: { type: string }
         defaultPriceArea: { $ref: '#/components/schemas/PriceArea' }
         status: { $ref: '#/components/schemas/UserStatus' }
+        demo:
+          type: boolean
+          readOnly: true
+          description: >-
+            True for a temporary account created by `POST /auth/demo`, which is deleted
+            automatically after a fixed lifetime. False for every regular account.
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
 

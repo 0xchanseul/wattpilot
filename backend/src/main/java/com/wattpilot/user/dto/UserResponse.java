@@ -16,6 +16,7 @@ public record UserResponse(
         String name,
         PriceArea defaultPriceArea,
         UserStatus status,
+        boolean demo,
         OffsetDateTime createdAt,
         OffsetDateTime updatedAt
 ) {
@@ -27,6 +28,7 @@ public record UserResponse(
                 user.getName(),
                 user.getDefaultPriceArea(),
                 user.getStatus(),
+                user.isDemo(),
                 user.getCreatedAt(),
                 user.getUpdatedAt());
     }

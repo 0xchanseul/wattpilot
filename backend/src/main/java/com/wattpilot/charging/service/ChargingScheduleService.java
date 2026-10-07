@@ -100,6 +100,12 @@ public class ChargingScheduleService {
         this.sessionRepository = sessionRepository;
     }
 
+    /** Whether a charge is running right now for any of the user's EVs. */
+    @Transactional(readOnly = true)
+    public boolean hasInProgressSchedule(Long userId) {
+        return scheduleRepository.existsForUserWithStatus(userId, ChargingScheduleStatus.IN_PROGRESS);
+    }
+
     @Transactional
     public ChargingScheduleResponse createSchedule(Long userId, CreateChargingScheduleRequest request) {
         OptimizationCommand command = new OptimizationCommand(

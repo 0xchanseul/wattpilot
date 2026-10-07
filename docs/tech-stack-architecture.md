@@ -126,10 +126,11 @@ V1 uses `BIGINT` primary keys and foreign keys. API resource identifiers use the
 
 Spring Scheduler is sufficient for V1.
 
-Two main scheduled processes are expected:
+Three scheduled processes exist:
 
 - Fetch and store electricity price data.
 - Detect scheduled charging reservations and execute Mock charging at the required time.
+- Delete expired demo accounts (only where the demo login is enabled; see "Demo Login").
 
 Kafka, RabbitMQ, and other message brokers are not required for the MVP.
 
@@ -285,6 +286,36 @@ History treats **`realizedSavingsNok` as the saving** — the per-item value and
 - **`granularity`** (`GET /savings/daily` only) is `DAILY` (default) or `MONTHLY`. Bucketing happens in `SavingsService`, in Java, for the same reason `DashboardService` buckets by day in Java: a timezone-aware `GROUP BY` has no portable JPQL expression. `MONTHLY` points use the first day of the Europe/Oslo calendar month as `date`. Every bucket in range is zero-filled, matching the Dashboard's `savingsTrend` convention.
 - **Realized savings only**, same as Dashboard/History: `baselineCostNok - actualCostNok`, never `charging_sessions.estimated_savings_nok`. `optimizedCostNok` is named after the plan's field but is backed by the realized `actualCostNok` sum.
 - **`evId`** filters both endpoints via `p.evId` the same way `ChargingHistoryRepository`'s `evId` filter does: an id the caller does not own, or that does not exist, simply matches nothing — no separate ownership check or 404.
+
+# Demo Login
+
+`POST /auth/demo` lets a visitor try the service without signing up. It is off unless
+`wattpilot.demo.enabled=true` (see `docs/deployment.md`, "Demo login (optional)").
+
+```text
+AuthController.startDemoSession
+        ↓
+AuthService.startDemoSession        // session lifetime = min(session-ttl, demo ttl)
+        ↓
+DemoAccountService.createAccount    // template lookup, capacity check, demo user
+        ↓
+DemoEvService.copyDemoEvs           // ev module: locked EV copies + vehicle_connections copies
+```
+
+- **One account per visitor.** Each login creates a temporary user (`users.demo = true`, an
+  unusable random password) so charging schedules, which are scoped per EV, never collide between
+  visitors. The template is an ordinary account named by `wattpilot.demo.template-email`; its active
+  EVs are copied as `locked` EVs.
+- **Shared Smartcar vehicle.** A vehicle connection row is copied as is. Smartcar API v3 uses one
+  application-level token scoped per request by `smartcar_user_id`, so every copy reads the same
+  simulated vehicle, and the shared connection id is why a locked EV can never be disconnected.
+- **Cleanup.** `DemoAccountCleanupScheduler` (`com.wattpilot.scheduler`, hourly) calls
+  `DemoAccountCleanupService`, which deletes `demo = true` accounts older than `ttl` one at a time,
+  each in its own transaction. Dependent rows go through `ON DELETE CASCADE`, so Smartcar is never
+  contacted. An account with an `IN_PROGRESS` schedule waits for a later run. The scheduler bean
+  exists only where the demo login is enabled.
+- **Abuse limits.** `max-active-accounts` bounds how many demo accounts exist (429
+  `DEMO_CAPACITY_REACHED`), and nginx rate-limits the endpoint per client IP.
 
 # Deployment Architecture
 

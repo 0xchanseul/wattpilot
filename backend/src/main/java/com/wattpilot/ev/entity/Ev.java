@@ -65,8 +65,9 @@ public class Ev {
     @Column(name = "status", nullable = false, columnDefinition = "ev_status")
     private EvStatus status;
 
-    // Set only directly in the database (the shared demo account's fixed EVs); no API writes it.
-    @Column(name = "locked", nullable = false, insertable = false, updatable = false)
+    // True only for fixed demo EVs: the template demo account's EVs (set directly in the database) and
+    // the copies the demo login gives each visitor. No API writes it, and it never changes afterwards.
+    @Column(name = "locked", nullable = false, updatable = false)
     private boolean locked;
 
     @CreationTimestamp
@@ -78,7 +79,7 @@ public class Ev {
     private OffsetDateTime updatedAt;
 
     private Ev(Long userId, String name, String manufacturer, String model, BigDecimal batteryCapacityKwh,
-               BigDecimal maxAcChargingPowerKw, BigDecimal defaultChargerPowerKw) {
+               BigDecimal maxAcChargingPowerKw, BigDecimal defaultChargerPowerKw, boolean locked) {
         this.userId = userId;
         this.name = name;
         this.manufacturer = manufacturer;
@@ -87,13 +88,22 @@ public class Ev {
         this.maxAcChargingPowerKw = maxAcChargingPowerKw;
         this.defaultChargerPowerKw = defaultChargerPowerKw;
         this.status = EvStatus.ACTIVE;
+        this.locked = locked;
     }
 
     public static Ev register(Long userId, String name, String manufacturer, String model,
                               BigDecimal batteryCapacityKwh, BigDecimal maxAcChargingPowerKw,
                               BigDecimal defaultChargerPowerKw) {
         return new Ev(userId, name, manufacturer, model, batteryCapacityKwh, maxAcChargingPowerKw,
-                defaultChargerPowerKw);
+                defaultChargerPowerKw, false);
+    }
+
+    /** Registers a fixed demo EV that its owner cannot edit, deactivate or disconnect. */
+    public static Ev registerLocked(Long userId, String name, String manufacturer, String model,
+                                    BigDecimal batteryCapacityKwh, BigDecimal maxAcChargingPowerKw,
+                                    BigDecimal defaultChargerPowerKw) {
+        return new Ev(userId, name, manufacturer, model, batteryCapacityKwh, maxAcChargingPowerKw,
+                defaultChargerPowerKw, true);
     }
 
     /**

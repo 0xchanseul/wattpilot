@@ -25,6 +25,11 @@ public enum ErrorCode {
     EMAIL_ALREADY_EXISTS(HttpStatus.CONFLICT, "This email is already registered."),
     USER_NOT_FOUND(HttpStatus.NOT_FOUND, "User not found."),
 
+    // The demo login is off in this environment, or its template account is missing or has no EV.
+    DEMO_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "The demo is not available right now."),
+    // The cap on simultaneously existing demo accounts has been reached.
+    DEMO_CAPACITY_REACHED(HttpStatus.TOO_MANY_REQUESTS, "Too many demo sessions are active right now. Please try again later."),
+
     // An EV that does not exist, or exists but is owned by another account: both are reported the
     // same way so the API cannot be used to probe which EV ids exist.
     EV_NOT_FOUND(HttpStatus.NOT_FOUND, "EV not found."),

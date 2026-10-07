@@ -59,6 +59,7 @@ class AuthApiIntegrationTest {
                 .andExpect(jsonPath("$.expiresIn").value(1800))
                 .andExpect(jsonPath("$.user.email").value(email))
                 .andExpect(jsonPath("$.user.status").value("ACTIVE"))
+                .andExpect(jsonPath("$.user.demo").value(false))
                 .andExpect(jsonPath("$.user.defaultPriceArea").value("NO1"))
                 .andExpect(jsonPath("$.user.passwordHash").doesNotExist())
                 // The refresh token is delivered only as an HttpOnly cookie, never in the body.
@@ -118,6 +119,13 @@ class AuthApiIntegrationTest {
                                 """.formatted(email)))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("INVALID_CREDENTIALS"));
+    }
+
+    @Test
+    void theDemoLoginIsUnavailableUnlessItIsEnabled() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/demo"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("DEMO_UNAVAILABLE"));
     }
 
     @Test

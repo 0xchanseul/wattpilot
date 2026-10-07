@@ -50,6 +50,9 @@ class AuthServiceTest {
     private UserService userService;
 
     @Mock
+    private DemoAccountService demoAccountService;
+
+    @Mock
     private RefreshTokenRepository refreshTokenRepository;
 
     @Mock
@@ -69,7 +72,8 @@ class AuthServiceTest {
                 Duration.ofDays(7),
                 Duration.ofDays(30));
         authService = new AuthService(
-                userService, refreshTokenRepository, jwtTokenProvider, passwordEncoder, jwtProperties);
+                userService, demoAccountService, refreshTokenRepository, jwtTokenProvider, passwordEncoder,
+                jwtProperties);
 
         when(jwtTokenProvider.createAccessToken(any())).thenReturn("access-token");
         when(jwtTokenProvider.accessTokenTtlSeconds()).thenReturn(1800L);
@@ -133,6 +137,29 @@ class AuthServiceTest {
         RefreshToken saved = savedToken();
         assertThat(saved.getAbsoluteExpiresAt()).isCloseTo(
                 before.plusDays(30), within(1, ChronoUnit.MINUTES));
+    }
+
+    @Test
+    void demoSessionNeverOutlivesTheDemoAccount() {
+        when(demoAccountService.createAccount()).thenReturn(activeUser());
+        when(demoAccountService.accountLifetime()).thenReturn(Duration.ofHours(24));
+        OffsetDateTime before = OffsetDateTime.now(ZoneOffset.UTC);
+
+        var result = authService.startDemoSession();
+
+        assertThat(result.refreshTokenValidity()).isEqualTo(Duration.ofHours(24));
+        assertThat(savedToken().getAbsoluteExpiresAt()).isCloseTo(
+                before.plusHours(24), within(1, ChronoUnit.MINUTES));
+    }
+
+    @Test
+    void demoSessionIsCappedAtTheRegularSessionLifetimeWhenTheAccountLivesLonger() {
+        when(demoAccountService.createAccount()).thenReturn(activeUser());
+        when(demoAccountService.accountLifetime()).thenReturn(Duration.ofDays(30));
+
+        var result = authService.startDemoSession();
+
+        assertThat(result.refreshTokenValidity()).isEqualTo(Duration.ofDays(7));
     }
 
     @Test

@@ -55,6 +55,7 @@ public class AuthService {
     private static final int REFRESH_TOKEN_BYTES = 32;
 
     private final UserService userService;
+    private final DemoAccountService demoAccountService;
     private final RefreshTokenRepository refreshTokenRepository;
     private final JwtTokenProvider jwtTokenProvider;
     private final PasswordEncoder passwordEncoder;
@@ -64,11 +65,13 @@ public class AuthService {
     private final SecureRandom secureRandom = new SecureRandom();
 
     public AuthService(UserService userService,
+                       DemoAccountService demoAccountService,
                        RefreshTokenRepository refreshTokenRepository,
                        JwtTokenProvider jwtTokenProvider,
                        PasswordEncoder passwordEncoder,
                        JwtProperties jwtProperties) {
         this.userService = userService;
+        this.demoAccountService = demoAccountService;
         this.refreshTokenRepository = refreshTokenRepository;
         this.jwtTokenProvider = jwtTokenProvider;
         this.passwordEncoder = passwordEncoder;
@@ -114,6 +117,14 @@ public class AuthService {
         }
 
         return startSession(user, request.rememberMe() ? rememberMeSessionTtl : sessionTtl);
+    }
+
+    @Transactional
+    public AuthResult startDemoSession() {
+        User visitor = demoAccountService.createAccount();
+        // The account is deleted after its lifetime, so the session must not outlast it.
+        Duration accountLifetime = demoAccountService.accountLifetime();
+        return startSession(visitor, accountLifetime.compareTo(sessionTtl) < 0 ? accountLifetime : sessionTtl);
     }
 
     private AuthResult startSession(User user, Duration sessionDuration) {

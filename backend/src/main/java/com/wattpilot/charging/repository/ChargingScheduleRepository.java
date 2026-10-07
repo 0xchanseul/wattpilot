@@ -96,6 +96,14 @@ public interface ChargingScheduleRepository extends JpaRepository<ChargingSchedu
     List<Long> findMissedIds(@Param("status") ChargingScheduleStatus status,
                              @Param("now") OffsetDateTime now, Limit limit);
 
+    /** Whether the user has at least one schedule in {@code status}, across all of their plans. */
+    @Query("""
+            select case when count(s) > 0 then true else false end
+            from ChargingSchedule s, ChargingPlan p
+            where s.chargingPlanId = p.id and p.userId = :userId and s.status = :status
+            """)
+    boolean existsForUserWithStatus(@Param("userId") Long userId, @Param("status") ChargingScheduleStatus status);
+
     /**
      * Whether any of the given plans (all for one EV) already has an active schedule overlapping
      * {@code [windowStart, windowEnd)}. Two intervals overlap iff {@code start < otherEnd} and

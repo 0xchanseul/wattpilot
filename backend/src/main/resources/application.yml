@@ -89,6 +89,22 @@ wattpilot:
       # Time zone for the cron above and for resolving which date is "tomorrow".
       zone: ${PRICE_COLLECTION_ZONE:Europe/Oslo}
 
+  demo:
+    # Demo login: gives each visitor a temporary account holding copies of the template account's
+    # EVs. Off by default in every profile; turn it on only where the template account exists.
+    enabled: ${DEMO_ENABLED:false}
+    # Existing account whose active EVs (and their Smartcar connections) are copied per visitor.
+    template-email: ${DEMO_TEMPLATE_EMAIL:}
+    # Lifetime of a visitor account; a demo session never outlives it.
+    ttl: ${DEMO_TTL:24h}
+    # Upper bound on demo accounts existing at once; further demo logins get 429.
+    max-active-accounts: ${DEMO_MAX_ACTIVE_ACCOUNTS:200}
+    # Hourly on the hour. A visitor account is therefore deleted between ttl and ttl + 1 hour after
+    # it was created. Use "-" to disable the schedule.
+    cleanup-cron: ${DEMO_CLEANUP_CRON:0 0 * * * *}
+    # Expired accounts deleted per run; the rest wait for the next run.
+    cleanup-batch-size: ${DEMO_CLEANUP_BATCH_SIZE:200}
+
   integration:
     hva-koster-strommen:
       # Public electricity-price API (no key, no auth). Base URL without a trailing slash.

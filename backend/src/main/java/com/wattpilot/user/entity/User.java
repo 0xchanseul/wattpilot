@@ -53,6 +53,11 @@ public class User {
     @Column(name = "status", nullable = false, columnDefinition = "user_status")
     private UserStatus status;
 
+    // True only for temporary visitor accounts created by the demo login; they are deleted after a
+    // fixed lifetime. Regular and template accounts keep the default false.
+    @Column(name = "demo", nullable = false, updatable = false)
+    private boolean demo;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
@@ -61,16 +66,21 @@ public class User {
     @Column(name = "updated_at", nullable = false)
     private OffsetDateTime updatedAt;
 
-    private User(String email, String passwordHash, String name, PriceArea defaultPriceArea) {
+    private User(String email, String passwordHash, String name, PriceArea defaultPriceArea, boolean demo) {
         this.email = email;
         this.passwordHash = passwordHash;
         this.name = name;
         this.defaultPriceArea = defaultPriceArea;
         this.status = UserStatus.ACTIVE;
+        this.demo = demo;
     }
 
     public static User register(String email, String passwordHash, String name, PriceArea defaultPriceArea) {
-        return new User(email, passwordHash, name, defaultPriceArea);
+        return new User(email, passwordHash, name, defaultPriceArea, false);
+    }
+
+    public static User registerDemo(String email, String passwordHash, String name, PriceArea defaultPriceArea) {
+        return new User(email, passwordHash, name, defaultPriceArea, true);
     }
 
     public boolean isActive() {

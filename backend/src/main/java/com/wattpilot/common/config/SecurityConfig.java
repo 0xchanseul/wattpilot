@@ -45,12 +45,13 @@ import java.util.List;
 public class SecurityConfig {
 
     /**
-     * Endpoints reachable without a token: account creation, credential exchange, and the
-     * springdoc resources. Refresh is public because its own token is the credential.
+     * Endpoints reachable without a token: account creation, credential exchange, the demo login,
+     * and the springdoc resources. Refresh is public because its own token is the credential.
      */
     private static final String[] PUBLIC_POST_PATHS = {
             "/api/v1/auth/signup",
             "/api/v1/auth/login",
+            "/api/v1/auth/demo",
             "/api/v1/auth/refresh"
     };
 

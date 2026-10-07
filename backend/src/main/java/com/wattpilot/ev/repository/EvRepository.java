@@ -10,6 +10,7 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.List;
 import java.util.Optional;
 
 public interface EvRepository extends JpaRepository<Ev, Long> {
@@ -29,4 +30,6 @@ public interface EvRepository extends JpaRepository<Ev, Long> {
     Optional<Ev> findByIdAndUserIdForUpdate(@Param("id") Long id, @Param("userId") Long userId);
 
     Page<Ev> findByUserIdAndStatus(Long userId, EvStatus status, Pageable pageable);
+
+    List<Ev> findByUserIdAndStatusOrderById(Long userId, EvStatus status);
 }

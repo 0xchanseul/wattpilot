@@ -61,6 +61,16 @@ public class AuthController {
                 .body(result.body());
     }
 
+    @Operation(summary = "Start a demo session")
+    @SecurityRequirements
+    @PostMapping("/demo")
+    public ResponseEntity<AuthResponse> startDemoSession() {
+        AuthService.AuthResult result = authService.startDemoSession();
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .header(HttpHeaders.SET_COOKIE, refreshTokenCookie(result.refreshToken(), result.refreshTokenValidity()))
+                .body(result.body());
+    }
+
     /**
      * Public because the refresh-token cookie is itself the credential; requiring a valid access
      * token as well would defeat the purpose of refreshing an expired one.

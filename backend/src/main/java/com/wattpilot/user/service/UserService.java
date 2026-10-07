@@ -7,12 +7,16 @@ import com.wattpilot.user.dto.UpdateUserRequest;
 import com.wattpilot.user.entity.User;
 import com.wattpilot.user.repository.UserRepository;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Limit;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.UUID;
 
 /**
  * Owns account persistence, including password hashing and email normalisation, so no other
@@ -21,6 +25,10 @@ import java.util.Optional;
 @Service
 @Transactional(readOnly = true)
 public class UserService {
+
+    // ".invalid" is reserved (RFC 2606), so a demo address can never reach a real mailbox.
+    private static final String DEMO_EMAIL_DOMAIN = "demo.wattpilot.invalid";
+    private static final String DEMO_USER_NAME = "Demo visitor";
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
@@ -45,6 +53,32 @@ public class UserService {
             // actually enforces it, so the same conflict is reported either way.
             throw new BusinessException(ErrorCode.EMAIL_ALREADY_EXISTS);
         }
+    }
+
+    /**
+     * Creates a temporary visitor account for the demo login. Nobody knows its password, so it can
+     * only be entered through the demo session that created it.
+     */
+    @Transactional
+    public User registerDemo(PriceArea defaultPriceArea) {
+        String email = "demo-" + UUID.randomUUID() + "@" + DEMO_EMAIL_DOMAIN;
+        String unusablePasswordHash = passwordEncoder.encode(UUID.randomUUID().toString());
+        return userRepository.saveAndFlush(
+                User.registerDemo(email, unusablePasswordHash, DEMO_USER_NAME, defaultPriceArea));
+    }
+
+    public long countDemoAccounts() {
+        return userRepository.countByDemoTrue();
+    }
+
+    public List<Long> findExpiredDemoUserIds(OffsetDateTime cutoff, int limit) {
+        return userRepository.findExpiredDemoUserIds(cutoff, Limit.of(limit));
+    }
+
+    /** @return whether a demo account was deleted; false if the id is gone or not a demo account */
+    @Transactional
+    public boolean deleteDemoAccount(Long userId) {
+        return userRepository.deleteDemoUserById(userId) > 0;
     }
 
     public Optional<User> findByEmail(String email) {
