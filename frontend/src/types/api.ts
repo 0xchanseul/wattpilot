@@ -14,6 +14,8 @@ export interface User {
   name: string
   defaultPriceArea: PriceArea
   status: AccountStatus
+  /** True for a temporary demo account, which the backend deletes automatically after a fixed time. */
+  demo: boolean
   createdAt: string
   updatedAt: string
 }

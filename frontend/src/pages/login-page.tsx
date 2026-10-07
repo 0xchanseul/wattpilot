@@ -1,7 +1,8 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useForm } from 'react-hook-form'
+import { useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router'
-import { AlertCircleIcon } from 'lucide-react'
+import { AlertCircleIcon, PlayIcon } from 'lucide-react'
 
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { AuthShell } from '@/components/layout/auth-shell'
@@ -21,10 +22,11 @@ import { loginSchema, type LoginFormValues } from '@/features/auth/schema'
 import { errorMessage } from '@/lib/error-message'
 
 export function LoginPage() {
-  const { login } = useAuth()
+  const { login, startDemo } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const from = (location.state as { from?: string } | null)?.from ?? '/dashboard'
+  const [startingDemo, setStartingDemo] = useState(false)
 
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
@@ -40,7 +42,20 @@ export function LoginPage() {
     }
   })
 
+  const onTryDemo = async () => {
+    setStartingDemo(true)
+    form.clearErrors('root')
+    try {
+      await startDemo()
+      navigate(from, { replace: true })
+    } catch (error) {
+      form.setError('root', { message: errorMessage(error) })
+      setStartingDemo(false)
+    }
+  }
+
   const rootError = form.formState.errors.root?.message
+  const busy = form.formState.isSubmitting || startingDemo
 
   return (
     <AuthShell tagline="Charging, timed to the cheapest hour of the day.">
@@ -111,11 +126,24 @@ export function LoginPage() {
               )}
             />
 
-            <Button type="submit" className="w-full" disabled={form.formState.isSubmitting}>
+            <Button type="submit" className="w-full" disabled={busy}>
               Sign in
             </Button>
           </form>
         </Form>
+
+        <div className="text-muted-foreground my-5 flex items-center gap-3 text-xs">
+          <span className="bg-border h-px flex-1" />
+          or
+          <span className="bg-border h-px flex-1" />
+        </div>
+
+        <Button type="button" variant="outline" className="w-full" onClick={onTryDemo} disabled={busy}>
+          <PlayIcon /> {startingDemo ? 'Setting up your demo…' : 'Try the demo'}
+        </Button>
+        <p className="text-muted-foreground mt-2 text-center text-xs">
+          No sign-up needed. Explore with a temporary account.
+        </p>
 
         <p className="text-muted-foreground mt-4 text-center text-sm">
           No account?{' '}

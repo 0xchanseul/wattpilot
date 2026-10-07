@@ -10,6 +10,10 @@ export function login(input: LoginInput): Promise<AuthResponse> {
   return apiRequest<AuthResponse>('/auth/login', { method: 'POST', body: input, withAuth: false })
 }
 
+export function startDemoSession(): Promise<AuthResponse> {
+  return apiRequest<AuthResponse>('/auth/demo', { method: 'POST', withAuth: false })
+}
+
 export function logout(): Promise<void> {
   return apiRequest<void>('/auth/logout', { method: 'POST' })
 }

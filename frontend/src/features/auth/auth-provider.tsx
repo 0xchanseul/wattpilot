@@ -10,6 +10,7 @@ import {
   login as loginRequest,
   logout as logoutRequest,
   signUp as signUpRequest,
+  startDemoSession as startDemoSessionRequest,
   updateProfile as updateProfileRequest,
 } from './api'
 import type { LoginInput, SignUpInput, UpdateProfileInput } from './types'
@@ -68,6 +69,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setStatus('authenticated')
   }, [])
 
+  const startDemo = useCallback(async () => {
+    const response = await startDemoSessionRequest()
+    authStore.setAccessToken(response.accessToken)
+    setUser(response.user)
+    setStatus('authenticated')
+  }, [])
+
   const logout = useCallback(async () => {
     try {
       await logoutRequest()
@@ -88,8 +96,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const value = useMemo<AuthContextValue>(
-    () => ({ status, user, login, signUp, logout, updateProfile }),
-    [status, user, login, signUp, logout, updateProfile],
+    () => ({ status, user, login, signUp, startDemo, logout, updateProfile }),
+    [status, user, login, signUp, startDemo, logout, updateProfile],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

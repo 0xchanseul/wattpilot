@@ -9,6 +9,7 @@ export interface AuthContextValue {
   user: User | null
   login: (input: LoginInput) => Promise<void>
   signUp: (input: SignUpInput) => Promise<void>
+  startDemo: () => Promise<void>
   logout: () => Promise<void>
   updateProfile: (input: UpdateProfileInput) => Promise<User>
 }
