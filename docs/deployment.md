@@ -919,6 +919,47 @@ Expect `201` with an `accessToken` and a `wp_refresh_token` cookie. `503 DEMO_UN
 demo is off, or the template account is missing or has no active EV. Each call creates a real demo
 account that the cleanup deletes later.
 
+# Request Limits and Security Headers
+
+`deploy/azure/nginx/wattpilot.conf` is the first line of defence against abusive traffic; the
+application adds per-account limits behind it. After changing the file, install it as described in its
+header and reload: `sudo nginx -t && sudo systemctl reload nginx`.
+
+| Control | Setting | Why |
+| --- | --- | --- |
+| Request body size | `client_max_body_size 32k` | A legitimate request body is a few hundred bytes; stops oversized JSON before it reaches the parser |
+| `POST /api/v1/auth/login`, `/signup` | 10 requests/min per IP, burst 10 | Each attempt costs a BCrypt verification: bounds password guessing and CPU exhaustion |
+| `POST /api/v1/auth/refresh` | 60 requests/min per IP, burst 30 | Runs on every page load of a signed-in visitor, so it is looser |
+| Other `/api/` calls | 20 requests/s per IP, burst 40 | Coarse ceiling for write endpoints and the Smartcar telemetry fan-out |
+| `POST /api/v1/auth/demo` | 5 requests/min per IP, burst 5 | See "Demo login" |
+
+Over any limit nginx answers 429 with a JSON body. Visitors behind one NAT share an IP and therefore
+the limits.
+
+Application-level limits (see `docs/openapi.yaml`): at most 20 EVs per account (409 `EV_LIMIT_REACHED`),
+at most 5 feedback messages per rolling 24 hours (429 `FEEDBACK_LIMIT_REACHED`), and at most 400 days
+per savings query (400 `VALIDATION_ERROR`).
+
+The backend container runs with a read-only root filesystem (`/tmp` is a tmpfs), no Linux capabilities and
+`no-new-privileges` (see `deploy/azure/docker-compose.yml`). The VM's copy of that file is not synced by
+the deploy workflow, so copy the change over by hand and run `docker compose up -d`. A restart is a short
+backend outage. If a feature ever has to write files, give it a volume or tmpfs instead of removing the
+restriction.
+
+Fonts are bundled with the frontend (`@fontsource/*`), not loaded from Google Fonts, so the
+Content-Security-Policy needs no external origin and no visitor IP goes to a third party.
+
+Expired refresh tokens are deleted once a day at 03:30 Europe/Oslo by `RefreshTokenCleanupScheduler`;
+tokens that were only revoked are kept until their session would have expired, because reuse detection
+needs them.
+
+Security headers are set once at the `www` server level: `Strict-Transport-Security`,
+`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy` and a
+`Content-Security-Policy`. nginx only inherits `add_header` into a location that declares none of its
+own, so do not add `add_header` inside a location. If the CSP blocks a new third-party resource (for
+example another font host), the browser console shows a "Refused to ..." message; extend the matching
+directive in the file. Check the live headers with `curl -sI https://www.wattpilot.dev/`.
+
 # Monitoring & Logging
 
 V1 uses a lightweight monitoring setup.
