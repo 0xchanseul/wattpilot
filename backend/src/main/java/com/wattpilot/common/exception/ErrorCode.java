@@ -29,12 +29,17 @@ public enum ErrorCode {
     DEMO_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "The demo is not available right now."),
     // The cap on simultaneously existing demo accounts has been reached.
     DEMO_CAPACITY_REACHED(HttpStatus.TOO_MANY_REQUESTS, "Too many demo sessions are active right now. Please try again later."),
+    // The sender has already used up the feedback messages allowed per rolling 24 hours.
+    FEEDBACK_LIMIT_REACHED(HttpStatus.TOO_MANY_REQUESTS, "You have sent too much feedback recently. Please try again later."),
 
     // An EV that does not exist, or exists but is owned by another account: both are reported the
     // same way so the API cannot be used to probe which EV ids exist.
     EV_NOT_FOUND(HttpStatus.NOT_FOUND, "EV not found."),
     // A locked EV (a fixed demo vehicle) cannot be edited, deleted or disconnected from Smartcar.
     EV_LOCKED(HttpStatus.FORBIDDEN, "This demo EV cannot be changed."),
+    // Caps how many EV records one account can hold, deactivated ones included, so an account cannot
+    // be used to fill the database.
+    EV_LIMIT_REACHED(HttpStatus.CONFLICT, "The maximum number of EVs for this account has been reached."),
 
     // No stored electricity price covers the requested area and time.
     ELECTRICITY_PRICE_NOT_FOUND(HttpStatus.NOT_FOUND, "No electricity price is available for the requested area and time."),

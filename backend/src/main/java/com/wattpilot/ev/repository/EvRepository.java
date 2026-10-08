@@ -29,6 +29,8 @@ public interface EvRepository extends JpaRepository<Ev, Long> {
     @Query("select e from Ev e where e.id = :id and e.userId = :userId")
     Optional<Ev> findByIdAndUserIdForUpdate(@Param("id") Long id, @Param("userId") Long userId);
 
+    long countByUserId(Long userId);
+
     Page<Ev> findByUserIdAndStatus(Long userId, EvStatus status, Pageable pageable);
 
     List<Ev> findByUserIdAndStatusOrderById(Long userId, EvStatus status);

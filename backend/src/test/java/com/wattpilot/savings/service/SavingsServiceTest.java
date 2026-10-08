@@ -30,6 +30,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -51,6 +52,32 @@ class SavingsServiceTest {
                 .extracting(ex -> ((BusinessException) ex).errorCode())
                 .isEqualTo(ErrorCode.VALIDATION_ERROR);
         verify(savingsRepository, never()).summarize(any(), any(), any(), any());
+    }
+
+    @Test
+    void everyEndpointRejectsARangeLongerThanTheMaximum() {
+        LocalDate from = LocalDate.of(2020, 1, 1);
+        LocalDate tooFar = from.plusDays(SavingsService.MAX_RANGE_DAYS);
+
+        assertThatThrownBy(() -> service().getSummary(USER_ID, from, tooFar, null))
+                .isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> service().getDaily(USER_ID, from, tooFar, null, null))
+                .isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> service().getPatterns(USER_ID, from, tooFar, null, PatternGroupBy.WEEKDAY))
+                .isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> service().getDaily(USER_ID, LocalDate.MIN.plusDays(1), LocalDate.MAX, null, null))
+                .isInstanceOf(BusinessException.class);
+        verifyNoInteractions(savingsRepository);
+    }
+
+    @Test
+    void aRangeOfExactlyTheMaximumIsAccepted() {
+        LocalDate from = LocalDate.of(2025, 1, 1);
+        LocalDate to = from.plusDays(SavingsService.MAX_RANGE_DAYS - 1L);
+        when(savingsRepository.findCompletedInRange(eq(USER_ID), eq(ChargingSessionStatus.COMPLETED), any(), any()))
+                .thenReturn(List.of());
+
+        assertThat(service().getDaily(USER_ID, from, to, null, null)).hasSize(SavingsService.MAX_RANGE_DAYS);
     }
 
     @Test

@@ -186,6 +186,8 @@ paths:
       description: >-
         Stores a free-text message together with the sender's account email. Available to every
         signed-in user, demo accounts included.
+        An account may send at most 5 messages per rolling 24 hours; further messages are rejected with
+        429 `FEEDBACK_LIMIT_REACHED`.
       operationId: sendFeedback
       requestBody:
         required: true
@@ -196,6 +198,7 @@ paths:
         '204': { description: Feedback stored }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
 
   /evs:
     get:
@@ -224,6 +227,9 @@ paths:
     post:
       tags: [EV]
       summary: Register an EV manually
+      description: >-
+        An account can hold at most 20 EVs, deactivated ones included. Beyond that the request is
+        rejected with 409 `EV_LIMIT_REACHED`.
       operationId: createEv
       requestBody:
         required: true
@@ -241,6 +247,11 @@ paths:
               schema: { $ref: '#/components/schemas/Ev' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '409':
+          description: The account already holds the maximum number of EVs (`EV_LIMIT_REACHED`)
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
 
   /evs/{evId}:
     parameters:
@@ -781,7 +792,8 @@ paths:
       description: >-
         Realized totals (`baselineCostNok - actualCostNok`, `COMPLETED` sessions only) over
         `[from, to]` — both bounds inclusive, resolved as Europe/Oslo calendar days, the same
-        convention `GET /dashboard` uses for its 30-day window. `400` when `to` is before `from`.
+        convention `GET /dashboard` uses for its 30-day window. `400` when `to` is before `from` or
+        the range spans more than 400 days.
       operationId: getSavingsSummary
       parameters:
         - name: from
@@ -815,7 +827,7 @@ paths:
         Realized savings per bucket (`baselineCostNok - actualCostNok`, `COMPLETED` sessions only)
         over `[from, to]` — both bounds inclusive, resolved as Europe/Oslo calendar days. Zero-filled:
         every bucket in range is present even with no completed session that day/month. `400` when
-        `to` is before `from`.
+        `to` is before `from` or the range spans more than 400 days.
       operationId: getDailySavings
       parameters:
         - name: from
@@ -863,7 +875,8 @@ paths:
         The slot's own `expectedCostNok` is used as that slot's optimized cost; the session's single
         `baselineCostNok` is prorated across its slots by each slot's share of the session's
         `actualEnergyKwh`. Zero-filled: every bucket of the chosen `groupBy` is present even with no
-        completed session contributing to it. `400` when `to` is before `from`.
+        completed session contributing to it. `400` when `to` is before `from` or the range spans
+        more than 400 days.
       operationId: getSavingsPatterns
       parameters:
         - name: from
@@ -1009,7 +1022,8 @@ components:
         application/problem+json:
           schema: { $ref: '#/components/schemas/ErrorResponse' }
     TooManyRequests:
-      description: Too many demo accounts are active right now
+      description: >-
+        A usage limit was hit (`DEMO_CAPACITY_REACHED`, `FEEDBACK_LIMIT_REACHED`), or nginx rate-limited the request
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/ErrorResponse' }

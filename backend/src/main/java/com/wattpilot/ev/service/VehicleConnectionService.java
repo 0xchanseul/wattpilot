@@ -21,7 +21,12 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Links a WattPilot EV to a Smartcar vehicle and surfaces its read-only telemetry. Charging
@@ -34,22 +39,32 @@ public class VehicleConnectionService {
 
     private static final Logger log = LoggerFactory.getLogger(VehicleConnectionService.class);
 
+    /**
+     * One telemetry read costs four Smartcar calls. Serving a recent reading instead keeps repeated
+     * requests from burning the provider's quota; battery state does not change meaningfully faster.
+     */
+    private static final Duration TELEMETRY_CACHE_TTL = Duration.ofSeconds(30);
+    private static final int TELEMETRY_CACHE_MAX_ENTRIES = 500;
+
     private final VehicleConnectionRepository vehicleConnectionRepository;
     private final EvService evService;
     private final SmartcarClient smartcarClient;
     private final SmartcarConnectStateService stateService;
     private final SmartcarProperties properties;
     private final VehicleConnectionRemover remover;
+    private final Clock clock;
+    private final Map<String, CachedTelemetry> telemetryCache = new ConcurrentHashMap<>();
 
     public VehicleConnectionService(VehicleConnectionRepository vehicleConnectionRepository, EvService evService,
                                     SmartcarClient smartcarClient, SmartcarConnectStateService stateService,
-                                    SmartcarProperties properties, VehicleConnectionRemover remover) {
+                                    SmartcarProperties properties, VehicleConnectionRemover remover, Clock clock) {
         this.vehicleConnectionRepository = vehicleConnectionRepository;
         this.evService = evService;
         this.smartcarClient = smartcarClient;
         this.stateService = stateService;
         this.properties = properties;
         this.remover = remover;
+        this.clock = clock;
     }
 
     public String buildConnectUrl(Long userId, Long evId) {
@@ -106,10 +121,19 @@ public class VehicleConnectionService {
     public VehicleTelemetryResponse telemetry(Long userId, Long evId) {
         requireEnabled();
         evService.getActiveOwnedEv(userId, evId);
+        // Ownership is checked above, before the cache is consulted. The key is the Smartcar vehicle
+        // itself, so demo accounts that share the template's vehicle also share one reading.
         VehicleConnection connection = getOwnedConnection(evId, userId);
+        String cacheKey = connection.getSmartcarUserId() + ":" + connection.getSmartcarVehicleId();
+        Instant now = clock.instant();
+        CachedTelemetry cached = telemetryCache.get(cacheKey);
+        if (cached != null && cached.expiresAt().isAfter(now)) {
+            return VehicleTelemetryResponse.from(cached.telemetry());
+        }
         try {
             SmartcarTelemetry telemetry = smartcarClient.readTelemetry(
                     connection.getSmartcarUserId(), connection.getSmartcarVehicleId());
+            cacheTelemetry(cacheKey, telemetry, now);
             return VehicleTelemetryResponse.from(telemetry);
         } catch (SmartcarProviderException ex) {
             log.warn("Smartcar telemetry read failed for ev {}: {}", evId, ex.getMessage());
@@ -123,6 +147,18 @@ public class VehicleConnectionService {
         EvService.requireUnlocked(ev, "The vehicle connection of this demo EV cannot be removed.");
         VehicleConnection connection = getOwnedConnection(evId, userId);
         remover.remove(connection);
+    }
+
+    private void cacheTelemetry(String cacheKey, SmartcarTelemetry telemetry, Instant now) {
+        if (telemetryCache.size() >= TELEMETRY_CACHE_MAX_ENTRIES) {
+            telemetryCache.values().removeIf(entry -> !entry.expiresAt().isAfter(now));
+        }
+        if (telemetryCache.size() < TELEMETRY_CACHE_MAX_ENTRIES) {
+            telemetryCache.put(cacheKey, new CachedTelemetry(telemetry, now.plus(TELEMETRY_CACHE_TTL)));
+        }
+    }
+
+    private record CachedTelemetry(SmartcarTelemetry telemetry, Instant expiresAt) {
     }
 
     private List<SmartcarVehicleCandidate> fetchCandidates(String smartcarUserId) {

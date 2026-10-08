@@ -16,6 +16,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest
@@ -53,6 +54,27 @@ class FeedbackApiIntegrationTest {
 
         mockMvc.perform(sendFeedback(token, "   ")).andExpect(status().isBadRequest());
         mockMvc.perform(sendFeedback(token, "x".repeat(2001))).andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void feedbackBeyondTheDailyLimitIsRejectedWithTooManyRequests() throws Exception {
+        String limitedEmail = "feedback-flood@example.com";
+        String body = mockMvc.perform(post("/api/v1/auth/signup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"email":"%s","password":"wattpilot-secret","name":"Flood","defaultPriceArea":"NO1"}
+                                """.formatted(limitedEmail)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String token = JsonPath.read(body, "$.accessToken");
+
+        for (int i = 0; i < 5; i++) {
+            mockMvc.perform(sendFeedback(token, "message " + i)).andExpect(status().isNoContent());
+        }
+
+        mockMvc.perform(sendFeedback(token, "one too many"))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.code").value("FEEDBACK_LIMIT_REACHED"));
     }
 
     @Test

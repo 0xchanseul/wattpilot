@@ -22,6 +22,9 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional(readOnly = true)
 public class EvService {
 
+    /** Counts deactivated EVs too: they are still rows, so excluding them would not bound storage. */
+    public static final int MAX_EVS_PER_USER = 20;
+
     private final EvRepository evRepository;
     private final VehicleConnectionRemover vehicleConnectionRemover;
 
@@ -32,6 +35,9 @@ public class EvService {
 
     @Transactional
     public EvResponse register(Long userId, CreateEvRequest request) {
+        if (evRepository.countByUserId(userId) >= MAX_EVS_PER_USER) {
+            throw new BusinessException(ErrorCode.EV_LIMIT_REACHED);
+        }
         Ev ev = Ev.register(
                 userId,
                 request.name().trim(),

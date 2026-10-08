@@ -20,6 +20,14 @@ repositories {
 
 ext {
     jjwtVersion = '0.13.0'
+
+    // Security patch overrides for the Spring Boot 4.1.1 BOM. Remove each one once the Boot
+    // version in use manages a release at or above it.
+    // Jackson < 3.1.7 / 2.21.7: quadratic-time numeric string validation (GHSA-p6pp-m3f8-5c89).
+    set('jackson-bom.version', '3.1.7')
+    set('jackson-2-bom.version', '2.21.7')
+    // Tomcat < 11.0.25: security-constraint and DIGEST/FORM authentication bypasses.
+    set('tomcat.version', '11.0.25')
 }
 
 dependencies {

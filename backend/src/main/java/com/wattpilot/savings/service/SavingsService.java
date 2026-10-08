@@ -21,6 +21,7 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -56,6 +57,13 @@ public class SavingsService {
 
     private static final ZoneId ZONE = ElectricityPriceService.PRICE_ZONE;
     private static final int PRORATION_SCALE = 10;
+
+    /**
+     * Upper bound on the requested range, in calendar days (both bounds inclusive). The daily trend
+     * materialises one point per day, so an unbounded range lets a single request exhaust the heap.
+     * Slightly above one year so the UI's 12-month preset still fits across a leap day.
+     */
+    static final int MAX_RANGE_DAYS = 400;
 
     private final SavingsRepository savingsRepository;
 
@@ -139,6 +147,10 @@ public class SavingsService {
     private void validateRange(LocalDate from, LocalDate to) {
         if (to.isBefore(from)) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "'to' must not be before 'from'.");
+        }
+        if (ChronoUnit.DAYS.between(from, to) + 1 > MAX_RANGE_DAYS) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR,
+                    "The date range must not exceed %d days.".formatted(MAX_RANGE_DAYS));
         }
     }
 

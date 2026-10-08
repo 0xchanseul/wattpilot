@@ -30,6 +30,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -48,6 +49,18 @@ class EvServiceTest {
 
     @InjectMocks
     private EvService evService;
+
+    @Test
+    void registerIsRejectedOnceTheAccountHoldsTheMaximumNumberOfEvs() {
+        when(evRepository.countByUserId(USER_ID)).thenReturn((long) EvService.MAX_EVS_PER_USER);
+
+        assertThatThrownBy(() -> evService.register(USER_ID, new CreateEvRequest(
+                "My i4", "BMW", "i4", new BigDecimal("81.10"), new BigDecimal("11.00"), new BigDecimal("7.40"))))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).errorCode())
+                .isEqualTo(ErrorCode.EV_LIMIT_REACHED);
+        verify(evRepository, never()).save(any(Ev.class));
+    }
 
     @Test
     void registerTrimsTextFieldsAndStoresAnActiveEvForTheUser() {
