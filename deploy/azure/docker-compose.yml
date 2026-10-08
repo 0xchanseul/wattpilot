@@ -33,6 +33,16 @@ services:
       # Failures during JVM startup and Flyway migrations do not count toward the retries.
       start_period: 60s
     mem_limit: 768m
+    # The application writes nothing outside /tmp (Tomcat scratch space), so the root filesystem can
+    # be read-only and the container needs none of the default Linux capabilities. If a future feature
+    # needs to write files, give it a dedicated volume or tmpfs instead of removing these.
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     logging:
       driver: json-file
       options:

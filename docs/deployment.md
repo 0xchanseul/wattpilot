@@ -589,7 +589,6 @@ checks as CI against the exact commit being deployed, then deploys over SSH.
 │ Gradle build + tests     │   │ npm ci, lint, build    │
 │ Docker build             │   │ upload dist/ artifact  │
 │ Push ghcr.io/…:<sha>     │   │                        │
-│      and :latest         │   │                        │
 └─────────────────────────┘   └───────────────────────┘
       ↓                              ↓
             deploy job (needs both)
@@ -611,8 +610,45 @@ only — it does not attempt to undo an already-applied Flyway migration; see TO
 for planned failure-handling/runbook work.
 
 Required GitHub Actions secrets: `VM_HOST`, `VM_USER`, `VM_SSH_KEY` (a deploy-only SSH key; its
-public half must be added to the VM's `~/.ssh/authorized_keys`). GHCR push uses the built-in
-`GITHUB_TOKEN`. The VM must already be able to pull from GHCR, same as the manual procedure above.
+public half must be added to the VM's `~/.ssh/authorized_keys`) and `VM_KNOWN_HOSTS` (the VM's SSH host
+key, below). GHCR push uses the built-in `GITHUB_TOKEN`. The VM must already be able to pull from GHCR,
+same as the manual procedure above.
+
+**Pinning the VM's host key (`VM_KNOWN_HOSTS`).** The deploy job no longer runs `ssh-keyscan` against
+the VM: that would trust whatever answers on the address at deploy time, a man in the middle included.
+The job stops with an error if the secret is missing. Create it once, from your own machine:
+
+```bash
+ssh-keyscan -t ed25519 <VM_HOST>
+```
+
+Compare the printed key with the one on the VM before trusting it:
+
+```bash
+# on the VM
+ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
+# on your machine, for the line printed by ssh-keyscan
+ssh-keygen -lf - <<< "<paste the ssh-keyscan line>"
+```
+
+The two fingerprints must match. Then store the `ssh-keyscan` line (host, key type and key, one line) as
+the `VM_KNOWN_HOSTS` repository secret. Re-create it only if the VM's host key is deliberately
+regenerated (for example after rebuilding the VM); an unexpected mismatch is a reason to stop and
+investigate, not to overwrite the secret.
+
+**Supply-chain hygiene.**
+
+- Every third-party action in `ci.yml` and `deploy.yml` is pinned to a full commit SHA with the version
+  in a trailing comment, and the backend base images in `backend/Dockerfile` are pinned by digest.
+  `.github/dependabot.yml` opens a weekly pull request for each of these, for the Gradle and npm
+  dependencies too, so pinning does not freeze the versions. Also enable "Dependabot alerts" and
+  "Dependabot security updates" under Settings > Code security so advisories are raised between the
+  weekly runs.
+- The deploy job runs in the `production` GitHub environment. Under Settings > Environments >
+  production, add yourself as a required reviewer if you want a confirmation click before every deploy.
+- The workflow pushes only the commit-tagged image. There is no moving `:latest` tag from CI; the manual
+  fallback above still builds one by hand, which is fine for a manual procedure.
+- CI fails if `npm audit --omit=dev` reports a high-severity advisory in a production dependency.
 
 # Configuration & Secrets
 
