@@ -115,6 +115,12 @@ paths:
       description: >-
         Reads the refresh token from the `wp_refresh_token` cookie, rotates it, and returns a new
         access token. The old refresh token is revoked. No request body.
+
+        A refresh token works exactly once: of several concurrent requests carrying the same token,
+        one succeeds and the rest get 401 `INVALID_TOKEN`. Presenting an already-revoked token more
+        than 10 seconds after it was revoked is treated as a replay of a copied token, and every
+        session of that user is revoked as well; within those 10 seconds it is only rejected, because
+        it is most likely two browser tabs refreshing at the same moment.
       operationId: refreshToken
       security:
         - refreshCookie: []

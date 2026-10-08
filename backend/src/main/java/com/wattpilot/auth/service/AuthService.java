@@ -54,6 +54,9 @@ public class AuthService {
     private static final String TOKEN_TYPE = "Bearer";
     private static final int REFRESH_TOKEN_BYTES = 32;
 
+    /** How long after its rotation a superseded token still counts as a benign race, not a replay. */
+    private static final Duration REUSE_GRACE = Duration.ofSeconds(10);
+
     private final UserService userService;
     private final DemoAccountService demoAccountService;
     private final RefreshTokenRepository refreshTokenRepository;
@@ -136,18 +139,16 @@ public class AuthService {
                 sessionDuration);
     }
 
-    @Transactional
+    // The reuse response revokes the user's sessions and must commit even though the request itself
+    // ends in an exception.
+    @Transactional(noRollbackFor = BusinessException.class)
     public RefreshResult refresh(String rawRefreshToken) {
         RefreshToken storedToken = refreshTokenRepository.findByTokenHash(hash(rawRefreshToken))
                 .orElseThrow(() -> new BusinessException(ErrorCode.INVALID_TOKEN));
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
 
         if (storedToken.isRevoked()) {
-            // Either a replay of an already rotated token or a request from a logged-out client.
-            // V1 only records it: revoking the whole family would log out the honest device too.
-            log.warn("Revoked refresh token presented: tokenId={}, userId={}",
-                    storedToken.getId(), storedToken.getUserId());
-            throw new BusinessException(ErrorCode.INVALID_TOKEN);
+            rejectRevokedToken(storedToken, now);
         }
         if (storedToken.isExpired(now)) {
             throw new BusinessException(ErrorCode.TOKEN_EXPIRED);
@@ -158,15 +159,34 @@ public class AuthService {
             throw new BusinessException(ErrorCode.INVALID_TOKEN);
         }
 
+        // Atomic claim of the token: a concurrent request carrying the same token loses here, so one
+        // refresh token can never produce two successors.
+        if (refreshTokenRepository.revokeIfActive(storedToken.getId(), now) == 0) {
+            throw new BusinessException(ErrorCode.INVALID_TOKEN);
+        }
+
         // Carry the session's absolute expiry onto the successor token unchanged: a rotation must
         // never push the deadline out, otherwise an active session would never end.
         OffsetDateTime absoluteExpiresAt = storedToken.getAbsoluteExpiresAt();
-        storedToken.revoke(now);
         IssuedTokens tokens = issueTokens(user, absoluteExpiresAt);
         return new RefreshResult(
                 tokens.accessTokenResponse(),
                 tokens.refreshToken(),
                 Duration.between(now, absoluteExpiresAt));
+    }
+
+    /**
+     * Always throws. A token revoked moments ago is most likely a benign race (two tabs refreshing at
+     * once) and is only rejected; one revoked long ago can only be a replay of a copied or stale token,
+     * so the user's other sessions are ended as well.
+     */
+    private void rejectRevokedToken(RefreshToken storedToken, OffsetDateTime now) {
+        if (storedToken.getRevokedAt().isBefore(now.minus(REUSE_GRACE))) {
+            int revoked = refreshTokenRepository.revokeAllActiveForUser(storedToken.getUserId(), now);
+            log.warn("Revoked refresh token replayed, user sessions ended: tokenId={}, userId={}, sessionsRevoked={}",
+                    storedToken.getId(), storedToken.getUserId(), revoked);
+        }
+        throw new BusinessException(ErrorCode.INVALID_TOKEN);
     }
 
     /**

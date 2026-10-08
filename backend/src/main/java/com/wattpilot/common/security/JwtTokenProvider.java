@@ -59,7 +59,13 @@ public class JwtTokenProvider {
                     .build()
                     .parseSignedClaims(accessToken)
                     .getPayload();
+            // A token that never expires would stay valid for as long as the signing key does.
+            if (claims.getExpiration() == null) {
+                throw new BusinessException(ErrorCode.INVALID_TOKEN);
+            }
             return Long.valueOf(claims.getSubject());
+        } catch (BusinessException ex) {
+            throw ex;
         } catch (ExpiredJwtException ex) {
             throw new BusinessException(ErrorCode.TOKEN_EXPIRED);
         } catch (JwtException | IllegalArgumentException ex) {

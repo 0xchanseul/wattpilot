@@ -48,6 +48,9 @@ class AuthApiIntegrationTest {
     @Autowired
     private MockMvc mockMvc;
 
+    @Autowired
+    private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
+
     @Test
     void signUpReturnsTheCreatedUserWithAnAccessTokenAndARefreshCookie() throws Exception {
         String email = nextEmail();
@@ -281,6 +284,51 @@ class AuthApiIntegrationTest {
                 .content("""
                         {"email":"%s","password":"%s","rememberMe":%s}
                         """.formatted(email, password, rememberMe));
+    }
+
+    @Test
+    void parallelRefreshesWithOneTokenProduceExactlyOneSuccessor() throws Exception {
+        String refreshToken = refreshCookieValue(signUpAndReturnResponse(nextEmail()));
+        int parallel = 8;
+        java.util.concurrent.ExecutorService executor = java.util.concurrent.Executors.newFixedThreadPool(parallel);
+        java.util.concurrent.CountDownLatch start = new java.util.concurrent.CountDownLatch(1);
+        java.util.List<java.util.concurrent.Future<Integer>> results = new java.util.ArrayList<>();
+        for (int i = 0; i < parallel; i++) {
+            results.add(executor.submit(() -> {
+                start.await();
+                return mockMvc.perform(refresh(refreshToken)).andReturn().getResponse().getStatus();
+            }));
+        }
+        start.countDown();
+        int succeeded = 0;
+        for (java.util.concurrent.Future<Integer> result : results) {
+            if (result.get() == 200) {
+                succeeded++;
+            }
+        }
+        executor.shutdown();
+
+        assertThat(succeeded).isEqualTo(1);
+    }
+
+    @Test
+    void replayingALongSupersededTokenEndsTheUsersOtherSessionsToo() throws Exception {
+        String email = nextEmail();
+        String firstToken = refreshCookieValue(signUpAndReturnResponse(email));
+        String currentToken = refreshCookieValue(mockMvc.perform(refresh(firstToken))
+                .andExpect(status().isOk()).andReturn().getResponse());
+        // Pretend the rotation happened an hour ago, past the grace window for benign races.
+        jdbcTemplate.update("UPDATE refresh_tokens SET revoked_at = now() - interval '1 hour' WHERE token_hash = ?",
+                sha256Hex(firstToken));
+
+        mockMvc.perform(refresh(firstToken)).andExpect(status().isUnauthorized());
+
+        mockMvc.perform(refresh(currentToken)).andExpect(status().isUnauthorized());
+    }
+
+    private static String sha256Hex(String value) throws Exception {
+        return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                .digest(value.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
     }
 
     private static RequestBuilder refresh(String refreshToken) {

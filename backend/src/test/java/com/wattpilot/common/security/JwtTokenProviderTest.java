@@ -74,6 +74,31 @@ class JwtTokenProviderTest {
                 .isInstanceOf(RuntimeException.class);
     }
 
+    @Test
+    void aSmartcarConnectStateIsNotAcceptedAsAnAccessToken() {
+        JwtProperties properties =
+                new JwtProperties(SECRET, "wattpilot", Duration.ofHours(1), Duration.ofDays(7), Duration.ofDays(30));
+        String state = new com.wattpilot.ev.service.SmartcarConnectStateService(properties).issue(42L, 7L);
+
+        assertThatThrownBy(() -> provider.parseUserId(state))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).errorCode())
+                .isEqualTo(ErrorCode.INVALID_TOKEN);
+    }
+
+    @Test
+    void aSignedTokenWithoutAnExpirationIsRejected() {
+        javax.crypto.SecretKey key = io.jsonwebtoken.security.Keys.hmacShaKeyFor(
+                Base64.getDecoder().decode(SECRET));
+        String neverExpires = io.jsonwebtoken.Jwts.builder()
+                .issuer("wattpilot").subject("42").signWith(key).compact();
+
+        assertThatThrownBy(() -> provider.parseUserId(neverExpires))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).errorCode())
+                .isEqualTo(ErrorCode.INVALID_TOKEN);
+    }
+
     private static JwtTokenProvider providerWith(String secret, String issuer, Duration accessTokenTtl) {
         return new JwtTokenProvider(
                 new JwtProperties(secret, issuer, accessTokenTtl, Duration.ofDays(7), Duration.ofDays(30)));

@@ -10,7 +10,11 @@ import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
 import org.springframework.stereotype.Service;
 
+import javax.crypto.Mac;
 import javax.crypto.SecretKey;
+import javax.crypto.spec.SecretKeySpec;
+import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Date;
@@ -21,8 +25,9 @@ import java.util.Date;
  * <p>Every vehicle-connection endpoint is authenticated (no public Smartcar callback is needed;
  * see the plan), so {@code state} does not have to defend against CSRF on its own. Its job is to
  * survive the redirect intact and prove, back on WattPilot's own endpoints, which user and EV the
- * Connect attempt was for. It is a signed, stateless, short-lived JWT reusing the existing JWT
- * signing key ({@link JwtProperties}) rather than a new secret or a server-side pending-state table.
+ * Connect attempt was for. It is a signed, stateless, short-lived JWT signed with a key derived from
+ * the existing JWT secret ({@link JwtProperties}) rather than a new secret or a server-side
+ * pending-state table. The derived key keeps it from being accepted as an access token.
  */
 @Service
 public class SmartcarConnectStateService {
@@ -31,13 +36,29 @@ public class SmartcarConnectStateService {
     private static final String CLAIM_EV_ID = "evId";
     private static final String TYPE_VALUE = "smartcar-connect";
     private static final Duration STATE_TTL = Duration.ofMinutes(10);
+    private static final String KEY_DERIVATION_LABEL = "wattpilot:smartcar-connect-state";
 
     private final SecretKey key;
     private final String issuer;
 
     public SmartcarConnectStateService(JwtProperties jwtProperties) {
-        this.key = Keys.hmacShaKeyFor(Decoders.BASE64.decode(jwtProperties.secret()));
+        this.key = deriveKey(Decoders.BASE64.decode(jwtProperties.secret()));
         this.issuer = jwtProperties.issuer();
+    }
+
+    /**
+     * The state travels through the browser's address bar, so it ends up in access logs and browser
+     * history. Signing it with a key derived from, but different to, the access-token key means a
+     * leaked state can never be presented as an access token.
+     */
+    private static SecretKey deriveKey(byte[] jwtSecret) {
+        try {
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(jwtSecret, "HmacSHA256"));
+            return Keys.hmacShaKeyFor(mac.doFinal(KEY_DERIVATION_LABEL.getBytes(StandardCharsets.UTF_8)));
+        } catch (GeneralSecurityException ex) {
+            throw new IllegalStateException("HmacSHA256 is not available in this JVM", ex);
+        }
     }
 
     public String issue(Long userId, Long evId) {

@@ -75,6 +75,7 @@ class AuthServiceTest {
                 userService, demoAccountService, refreshTokenRepository, jwtTokenProvider, passwordEncoder,
                 jwtProperties);
 
+        when(refreshTokenRepository.revokeIfActive(any(), any())).thenReturn(1);
         when(jwtTokenProvider.createAccessToken(any())).thenReturn("access-token");
         when(jwtTokenProvider.accessTokenTtlSeconds()).thenReturn(1800L);
     }
@@ -170,7 +171,7 @@ class AuthServiceTest {
 
         var result = authService.refresh(PRESENTED_TOKEN);
 
-        assertThat(stored.isRevoked()).isTrue();
+        verify(refreshTokenRepository).revokeIfActive(any(), any());
         assertThat(result.body().accessToken()).isEqualTo("access-token");
         assertThat(result.refreshToken()).isNotBlank();
         assertThat(result.refreshToken()).isNotEqualTo(PRESENTED_TOKEN);
@@ -204,6 +205,44 @@ class AuthServiceTest {
                 .extracting(ex -> ((BusinessException) ex).errorCode())
                 .isEqualTo(ErrorCode.INVALID_TOKEN);
         verify(refreshTokenRepository, never()).save(any(RefreshToken.class));
+    }
+
+    @Test
+    void refreshLosingTheRaceForTheSameTokenIsRejectedWithoutIssuingASuccessor() {
+        RefreshToken stored = storedToken(1L, OffsetDateTime.now(ZoneOffset.UTC).plusDays(7));
+        when(refreshTokenRepository.findByTokenHash(anyString())).thenReturn(Optional.of(stored));
+        when(userService.getById(1L)).thenReturn(activeUser());
+        when(refreshTokenRepository.revokeIfActive(any(), any())).thenReturn(0);
+
+        assertThatThrownBy(() -> authService.refresh(PRESENTED_TOKEN))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).errorCode())
+                .isEqualTo(ErrorCode.INVALID_TOKEN);
+        verify(refreshTokenRepository, never()).save(any(RefreshToken.class));
+    }
+
+    @Test
+    void replayingATokenRotatedLongAgoEndsEveryActiveSessionOfTheUser() {
+        RefreshToken stored = storedToken(1L, OffsetDateTime.now(ZoneOffset.UTC).plusDays(14));
+        stored.revoke(OffsetDateTime.now(ZoneOffset.UTC).minusMinutes(5));
+        when(refreshTokenRepository.findByTokenHash(anyString())).thenReturn(Optional.of(stored));
+
+        assertThatThrownBy(() -> authService.refresh(PRESENTED_TOKEN))
+                .isInstanceOf(BusinessException.class);
+
+        verify(refreshTokenRepository).revokeAllActiveForUser(org.mockito.ArgumentMatchers.eq(1L), any());
+    }
+
+    @Test
+    void presentingATokenRotatedMomentsAgoIsOnlyRejectedBecauseItIsMostLikelyARace() {
+        RefreshToken stored = storedToken(1L, OffsetDateTime.now(ZoneOffset.UTC).plusDays(14));
+        stored.revoke(OffsetDateTime.now(ZoneOffset.UTC).minusSeconds(2));
+        when(refreshTokenRepository.findByTokenHash(anyString())).thenReturn(Optional.of(stored));
+
+        assertThatThrownBy(() -> authService.refresh(PRESENTED_TOKEN))
+                .isInstanceOf(BusinessException.class);
+
+        verify(refreshTokenRepository, never()).revokeAllActiveForUser(any(), any());
     }
 
     @Test

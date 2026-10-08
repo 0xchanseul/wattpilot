@@ -46,21 +46,34 @@ async function parseError(response: Response): Promise<ApiError> {
 
 let refreshInFlight: Promise<boolean> | null = null
 
+const REFRESH_RETRY_DELAY_MS = 300
+
+// A refresh token works once. When two browser tabs refresh at the same moment, the loser is
+// answered 401 although the winner has already stored a fresh cookie in the shared cookie jar, so
+// one retry with that cookie succeeds. A genuinely dead session fails the retry too.
 async function runRefresh(): Promise<boolean> {
-  try {
-    const response = await fetch(buildUrl('/auth/refresh'), {
-      method: 'POST',
-      credentials: 'include',
-    })
-    if (!response.ok) {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const response = await fetch(buildUrl('/auth/refresh'), {
+        method: 'POST',
+        credentials: 'include',
+      })
+      if (response.ok) {
+        const data = (await response.json()) as { accessToken: string }
+        authStore.setAccessToken(data.accessToken)
+        return true
+      }
+      if (response.status !== 401) {
+        return false
+      }
+    } catch {
       return false
     }
-    const data = (await response.json()) as { accessToken: string }
-    authStore.setAccessToken(data.accessToken)
-    return true
-  } catch {
-    return false
+    if (attempt === 0) {
+      await new Promise((resolve) => setTimeout(resolve, REFRESH_RETRY_DELAY_MS))
+    }
   }
+  return false
 }
 
 /**
