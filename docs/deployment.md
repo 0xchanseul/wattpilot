@@ -640,10 +640,7 @@ investigate, not to overwrite the secret.
 
 - Every third-party action in `ci.yml` and `deploy.yml` is pinned to a full commit SHA with the version
   in a trailing comment, and the backend base images in `backend/Dockerfile` are pinned by digest.
-  `.github/dependabot.yml` opens a weekly pull request for each of these, for the Gradle and npm
-  dependencies too, so pinning does not freeze the versions. Also enable "Dependabot alerts" and
-  "Dependabot security updates" under Settings > Code security so advisories are raised between the
-  weekly runs.
+  There is no automated update bot, so refresh the pins by hand when upgrading.
 - The deploy job runs in the `production` GitHub environment. Under Settings > Environments >
   production, add yourself as a required reviewer if you want a confirmation click before every deploy.
 - The workflow pushes only the commit-tagged image. There is no moving `:latest` tag from CI; the manual

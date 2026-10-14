@@ -2,7 +2,7 @@
 
 # --- Build stage: compile the Spring Boot executable jar ---
 # Base images are pinned by digest so a rebuild cannot silently pick up a different image.
-# Dependabot (docker ecosystem) proposes updates; to refresh by hand, pull the tag and read
+# To refresh by hand, pull the tag and read
 # `docker inspect --format '{{index .RepoDigests 0}}' eclipse-temurin:21-jdk`.
 FROM eclipse-temurin:21-jdk@sha256:3e3c176ffed168beb42c607be9bc1639b466cf00261a0fb04425562c9d0c5c2b AS build
 WORKDIR /workspace
