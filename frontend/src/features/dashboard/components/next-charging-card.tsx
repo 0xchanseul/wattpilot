@@ -2,8 +2,8 @@ import type { ReactNode } from 'react'
 import { Link } from 'react-router'
 import { BatteryChargingIcon, CalendarClockIcon, CarIcon, PlusIcon, ZapIcon } from 'lucide-react'
 
-import evChargingImage from '@/assets/ev-charging.png'
-import evIdleImage from '@/assets/ev-idle.png'
+import evChargingImage from '@/assets/ev-charging.webp'
+import evIdleImage from '@/assets/ev-idle.webp'
 import { Button } from '@/components/ui/button'
 import { ScheduleStatusBadge } from '@/features/charging/components/schedule-status-badge'
 import { formatDurationMinutes, formatKwh, formatNok, formatScheduleWindow } from '@/lib/format'
@@ -95,6 +95,8 @@ function VehicleImage({ charging }: { charging: boolean }) {
       <img
         src={charging ? evChargingImage : evIdleImage}
         alt={charging ? 'Vehicle charging' : 'Vehicle idle'}
+        width={charging ? 1024 : 900}
+        height={charging ? 477 : 414}
         className="block max-h-48 w-auto max-w-full select-none"
         draggable={false}
       />

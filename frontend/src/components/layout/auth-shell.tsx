@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router'
 
-import evChargingImage from '@/assets/ev-charging.png'
+import evChargingImage from '@/assets/ev-charging.webp'
 
 /**
  * Shared chrome for the Login and Sign-up pages: a fjord-midnight brand panel (showing the same
@@ -21,6 +21,9 @@ export function AuthShell({ tagline, children }: { tagline: string; children: Re
           <img
             src={evChargingImage}
             alt="Vehicle charging"
+            width={1024}
+            height={477}
+            fetchPriority="high"
             className="w-full max-w-lg object-contain select-none"
             draggable={false}
           />
