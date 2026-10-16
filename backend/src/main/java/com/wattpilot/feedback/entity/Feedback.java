@@ -16,8 +16,8 @@ import java.time.OffsetDateTime;
 /**
  * A free-text message left by a signed-in visitor, demo accounts included.
  *
- * <p>The sender is stored as an email snapshot rather than a user id, because demo accounts are
- * deleted automatically and the feedback must remain readable afterwards.
+ * <p>Stored anonymously: nothing identifies the sender, so the message survives account deletion
+ * and is never tied back to a person.
  */
 @Entity
 @Table(name = "feedback")
@@ -29,9 +29,6 @@ public class Feedback {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "email", nullable = false, updatable = false, length = 255)
-    private String email;
-
     @Column(name = "message", nullable = false, updatable = false, columnDefinition = "text")
     private String message;
 
@@ -39,8 +36,7 @@ public class Feedback {
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
 
-    public Feedback(String email, String message) {
-        this.email = email;
+    public Feedback(String message) {
         this.message = message;
     }
 }

@@ -970,7 +970,8 @@ Over any limit nginx answers 429 with a JSON body. Visitors behind one NAT share
 the limits.
 
 Application-level limits (see `docs/openapi.yaml`): at most 20 EVs per account (409 `EV_LIMIT_REACHED`),
-at most 5 feedback messages per rolling 24 hours (429 `FEEDBACK_LIMIT_REACHED`), and at most 400 days
+at most 5 feedback messages per rolling 24 hours (429 `FEEDBACK_LIMIT_REACHED`, counted in memory so it
+resets on a backend restart), and at most 400 days
 per savings query (400 `VALIDATION_ERROR`).
 
 The backend container runs with a read-only root filesystem (`/tmp` is a tmpfs), no Linux capabilities and

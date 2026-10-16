@@ -91,9 +91,12 @@ export function FeedbackDialog({ open, onOpenChange }: FeedbackDialogProps) {
             placeholder="Write your feedback here…"
             className="placeholder:text-muted-foreground border-input focus-visible:border-ring focus-visible:ring-ring/50 w-full resize-y rounded-md border bg-transparent px-3 py-2 text-base shadow-xs outline-none focus-visible:ring-[3px] md:text-sm"
           />
-          <p className="text-muted-foreground text-right text-xs">
-            {message.length}/{FEEDBACK_MAX_LENGTH}
-          </p>
+          <div className="text-muted-foreground flex justify-between gap-4 text-xs">
+            <span>Feedback is stored anonymously.</span>
+            <span>
+              {message.length}/{FEEDBACK_MAX_LENGTH}
+            </span>
+          </div>
         </div>
 
         <div className="flex justify-end gap-2">

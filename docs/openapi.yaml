@@ -190,10 +190,11 @@ paths:
       tags: [Feedback]
       summary: Send feedback
       description: >-
-        Stores a free-text message together with the sender's account email. Available to every
-        signed-in user, demo accounts included.
+        Stores a free-text message anonymously: nothing that identifies the sender is saved with it.
+        Available to every signed-in user, demo accounts included.
         An account may send at most 5 messages per rolling 24 hours; further messages are rejected with
-        429 `FEEDBACK_LIMIT_REACHED`.
+        429 `FEEDBACK_LIMIT_REACHED`. The count is kept in server memory only (it is not stored with the
+        message), so it resets when the backend restarts.
       operationId: sendFeedback
       requestBody:
         required: true

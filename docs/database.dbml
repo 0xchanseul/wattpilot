@@ -407,9 +407,10 @@ Table charging_sessions {
 
 Table feedback {
   id bigint [pk, increment]
-  email varchar(255) [not null, note: 'Snapshot of the sender account email, not a foreign key: demo accounts are deleted automatically and their feedback must outlive them']
   message text [not null]
   created_at timestamptz [not null]
+
+  note: 'Stored anonymously: no email or user id, so a message survives account deletion and is never tied to a person. The per-account send limit is counted in application memory, not in this table.'
 
   checks {
     `char_length(message) BETWEEN 1 AND 2000` [name: 'feedback_message_length_valid']

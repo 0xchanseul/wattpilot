@@ -4,13 +4,9 @@ import com.wattpilot.common.exception.BusinessException;
 import com.wattpilot.common.exception.ErrorCode;
 import com.wattpilot.feedback.entity.Feedback;
 import com.wattpilot.feedback.repository.FeedbackRepository;
-import com.wattpilot.user.service.UserService;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Clock;
 import java.time.Duration;
-import java.time.OffsetDateTime;
 
 @Service
 public class FeedbackService {
@@ -19,24 +15,18 @@ public class FeedbackService {
     static final Duration WINDOW = Duration.ofHours(24);
 
     private final FeedbackRepository feedbackRepository;
-    private final UserService userService;
-    private final Clock clock;
+    private final FeedbackRateLimiter rateLimiter;
 
-    public FeedbackService(FeedbackRepository feedbackRepository, UserService userService, Clock clock) {
+    FeedbackService(FeedbackRepository feedbackRepository, FeedbackRateLimiter rateLimiter) {
         this.feedbackRepository = feedbackRepository;
-        this.userService = userService;
-        this.clock = clock;
+        this.rateLimiter = rateLimiter;
     }
 
-    @Transactional
+    /** Stores the message anonymously; the user id is only used to apply the send limit. */
     public void submit(Long userId, String message) {
-        String email = userService.getById(userId).getEmail();
-        // The count is not atomic with the insert, so a burst can overshoot by a few messages; the
-        // limit only bounds storage growth and does not need to be exact.
-        OffsetDateTime since = OffsetDateTime.now(clock).minus(WINDOW);
-        if (feedbackRepository.countByEmailAndCreatedAtAfter(email, since) >= MAX_MESSAGES_PER_WINDOW) {
+        if (!rateLimiter.tryAcquire(userId)) {
             throw new BusinessException(ErrorCode.FEEDBACK_LIMIT_REACHED);
         }
-        feedbackRepository.save(new Feedback(email, message.trim()));
+        feedbackRepository.save(new Feedback(message.trim()));
     }
 }

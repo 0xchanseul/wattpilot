@@ -38,14 +38,18 @@ class FeedbackApiIntegrationTest {
     private JdbcTemplate jdbcTemplate;
 
     @Test
-    void feedbackIsStoredWithTheSendersEmailAndATrimmedMessage() throws Exception {
+    void feedbackIsStoredAnonymouslyWithATrimmedMessage() throws Exception {
         String token = signUpAndToken();
 
         mockMvc.perform(sendFeedback(token, "  Nice work!  "))
                 .andExpect(status().isNoContent());
 
         assertEquals("Nice work!", jdbcTemplate.queryForObject(
-                "SELECT message FROM feedback WHERE email = ?", String.class, EMAIL));
+                "SELECT message FROM feedback WHERE message = 'Nice work!'", String.class));
+        assertEquals(0, jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM information_schema.columns "
+                        + "WHERE table_name = 'feedback' AND column_name NOT IN ('id', 'message', 'created_at')",
+                Integer.class));
     }
 
     @Test
