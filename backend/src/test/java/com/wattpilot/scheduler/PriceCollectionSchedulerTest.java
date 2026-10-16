@@ -9,6 +9,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 
@@ -41,6 +42,6 @@ class PriceCollectionSchedulerTest {
 
     private PriceCollectionScheduler scheduler(Clock clock) {
         return new PriceCollectionScheduler(collectionService, clock,
-                new PriceCollectionProperties(true, "0 15 13-22 * * *", OSLO));
+                new PriceCollectionProperties(true, "0 15 13-22 * * *", OSLO, LocalTime.of(16, 0)));
     }
 }

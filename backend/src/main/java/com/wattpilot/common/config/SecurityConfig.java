@@ -65,7 +65,9 @@ public class SecurityConfig {
             // so this covers just the aggregate and the liveness/readiness groups, not the rest
             // of Actuator.
             "/actuator/health",
-            "/actuator/health/**"
+            "/actuator/health/**",
+            // Bare UP/DOWN status for the external price-freshness monitor.
+            "/actuator/pricefreshness"
     };
 
     @Bean

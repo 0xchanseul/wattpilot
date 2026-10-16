@@ -140,6 +140,18 @@ class PublicEndpointsSmokeTest {
     }
 
     @Test
+    void priceFreshnessEndpointIsPubliclyReachableAndStaysOutOfTheAggregateHealth() throws Exception {
+        // The answer depends on the wall clock and the (mocked) repository, so only reachability is
+        // asserted: 200 or 503 with a status body, never 401 or 404.
+        mockMvc.perform(get("/actuator/pricefreshness"))
+                .andExpect(result -> assertThat(result.getResponse().getStatus()).isIn(200, 503))
+                .andExpect(jsonPath("$.status").exists());
+        mockMvc.perform(get("/actuator/health"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("UP"));
+    }
+
+    @Test
     void databaseCountsTowardReadinessButNotLiveness() {
         assertThat(healthEndpointGroups.get("readiness").isMember("db")).isTrue();
         assertThat(healthEndpointGroups.get("liveness").isMember("db")).isFalse();

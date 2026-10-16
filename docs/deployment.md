@@ -1032,6 +1032,22 @@ V1 uses a lightweight monitoring setup.
   | API health | Keyword | `https://www.wattpilot.dev/actuator/health` | body contains `"status":"UP"` |
   | Web | HTTP(s) | `https://www.wattpilot.dev/` | HTTP 200 |
   | Apex redirect (optional) | HTTP(s) | `https://wattpilot.dev/` | redirect followed, HTTP 200 |
+  | Price freshness | Keyword | `https://www.wattpilot.dev/actuator/pricefreshness` | body contains `"status":"UP"` |
+
+  The price freshness endpoint (`PriceFreshnessEndpoint`) answers `UP` before 16:00 Oslo
+  (`PRICE_FRESHNESS_DEADLINE`) because next-day prices are normally still being collected. From
+  16:00 until midnight it answers `503 {"status":"DOWN"}` if any price area lacks a full day of
+  prices for tomorrow; the missing areas are logged at ERROR, never returned. It is deliberately
+  not part of `/actuator/health`, so a price problem alerts without failing the deploy rollback
+  check or the API monitor. It judges the stored result, so it catches a job that never ran, a
+  provider outage and a restart during the retry window alike. Alert latency is up to the
+  16:00 deadline plus one monitor interval. At Oslo midnight "tomorrow" moves to a new date and the
+  endpoint answers `UP` again until 16:00.
+
+  The VM's nginx config is not synced by the deploy workflow: after this change copy
+  `deploy/azure/nginx/wattpilot.conf` to the VM and run `sudo nginx -t && sudo systemctl reload nginx`,
+  otherwise `/actuator/pricefreshness` is served the SPA's `index.html` and the keyword monitor
+  reports Down.
 
   The API monitor matches the body instead of only the status code because nginx serves the SPA
   for every unknown path: if the `/actuator/health` proxy rule were lost, the URL would still

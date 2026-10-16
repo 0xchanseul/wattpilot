@@ -3,6 +3,7 @@ package com.wattpilot.scheduler;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
 
+import java.time.LocalTime;
 import java.time.ZoneId;
 
 /**
@@ -16,11 +17,14 @@ import java.time.ZoneId;
  *                runs cost nothing once everything is collected.
  * @param zone    time zone for {@code cron} and for deciding which date is "tomorrow"; Norwegian
  *                bidding zones follow {@code Europe/Oslo}
+ * @param freshnessDeadline local time ({@code zone}) after which missing next-day prices are reported
+ *                as a problem by the price freshness endpoint; before it, missing prices are normal
  */
 @ConfigurationProperties("wattpilot.electricity.collection")
 public record PriceCollectionProperties(
         @DefaultValue("true") boolean enabled,
         @DefaultValue("0 15 13-22 * * *") String cron,
-        @DefaultValue("Europe/Oslo") ZoneId zone
+        @DefaultValue("Europe/Oslo") ZoneId zone,
+        @DefaultValue("16:00") LocalTime freshnessDeadline
 ) {
 }

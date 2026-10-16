@@ -16,9 +16,10 @@ management:
   endpoints:
     web:
       exposure:
-        # Only health is reachable over HTTP; other actuator endpoints (env, beans, etc.) could
-        # leak configuration and are never exposed, in any profile.
-        include: health
+        # Only health and pricefreshness (a bare UP/DOWN status) are reachable over HTTP; other
+        # actuator endpoints (env, beans, etc.) could leak configuration and are never exposed, in
+        # any profile.
+        include: health,pricefreshness
   endpoint:
     health:
       # Never show dependency details (DB, disk space) to an unauthenticated caller; health
@@ -88,6 +89,9 @@ wattpilot:
       cron: ${PRICE_COLLECTION_CRON:0 15 13-22 * * *}
       # Time zone for the cron above and for resolving which date is "tomorrow".
       zone: ${PRICE_COLLECTION_ZONE:Europe/Oslo}
+      # After this local time (zone above) /actuator/pricefreshness answers 503 while any zone is
+      # missing tomorrow's prices. Before it, missing prices are normal and the answer is 200.
+      freshness-deadline: ${PRICE_FRESHNESS_DEADLINE:16:00}
 
   demo:
     # Demo login: gives each visitor a temporary account holding copies of the template account's
