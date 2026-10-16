@@ -1055,7 +1055,16 @@ V1 uses a lightweight monitoring setup.
 
   When the API monitor reports Down: check `docker ps` and `docker logs wattpilot-backend` on the
   VM, then the database (`/actuator/health` also fails when the database is unreachable, and in a
-  local test it did not answer within 20 s in that case).
+  local test it did not answer within 20 s in that case), then free disk space (`df -h /`).
+
+  **Disk space alert.** The built-in `diskSpace` health indicator reports DOWN when less than
+  `DISK_SPACE_THRESHOLD` (default 3 GB, about 10% of the 29 GB disk) is free, so the same API
+  monitor alerts before the disk fills. Inside the container this is the host disk
+  (`docker exec wattpilot-backend df -h /` shows the same size and usage as the VM). It is part of
+  the aggregate `/actuator/health` but not of the liveness or readiness groups, so a full disk never
+  marks the container unhealthy (restarting does not free space). The deploy workflow reads the
+  aggregate too, so a deploy with less than the threshold free is rolled back. Not exercised: an
+  actual low-disk alert (lower `DISK_SPACE_THRESHOLD` below the current free space to test it).
 
   Verified: the alert e-mail is delivered (UptimeRobot's built-in notification test). Not
   exercised: an actual outage being detected by the monitors.

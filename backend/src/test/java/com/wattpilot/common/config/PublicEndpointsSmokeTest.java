@@ -20,6 +20,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.health.actuate.endpoint.HealthEndpointGroups;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.core.env.Environment;
+import org.springframework.util.unit.DataSize;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -48,6 +50,9 @@ class PublicEndpointsSmokeTest {
 
     @Autowired
     HealthEndpointGroups healthEndpointGroups;
+
+    @Autowired
+    Environment environment;
 
     // The persistence layer is excluded above, so the repositories the services depend on are
     // stubbed; this test only cares that the OpenAPI document and Swagger UI are served.
@@ -149,6 +154,20 @@ class PublicEndpointsSmokeTest {
         mockMvc.perform(get("/actuator/health"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("UP"));
+    }
+
+    @Test
+    void 근diskSpaceThresholdIsRaisedAboveTheNeverWarningDefault() {
+        // The Spring default (10MB) would only warn when the disk is already full; guard the setting
+        // the uptime monitor relies on so it cannot be dropped silently.
+        DataSize threshold = environment.getProperty("management.health.diskspace.threshold", DataSize.class);
+        assertThat(threshold).isEqualTo(DataSize.ofGigabytes(3));
+    }
+
+    @Test
+    void diskSpaceDoesNotCountTowardLivenessOrReadiness() {
+        assertThat(healthEndpointGroups.get("liveness").isMember("diskSpace")).isFalse();
+        assertThat(healthEndpointGroups.get("readiness").isMember("diskSpace")).isFalse();
     }
 
     @Test

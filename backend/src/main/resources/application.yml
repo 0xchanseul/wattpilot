@@ -20,6 +20,14 @@ management:
         # actuator endpoints (env, beans, etc.) could leak configuration and are never exposed, in
         # any profile.
         include: health,pricefreshness
+  health:
+    diskspace:
+      # Reports DOWN when less than this is free on the volume the app runs on, so the external
+      # uptime monitor on /actuator/health alerts before the disk fills up. The default (10MB) is
+      # too small to ever warn in time. Inside the production container this is the host disk
+      # (29 GB, checked with `docker exec wattpilot-backend df -h /`). The check is not part of the
+      # liveness or readiness groups: restarting the app does not free disk space.
+      threshold: ${DISK_SPACE_THRESHOLD:3GB}
   endpoint:
     health:
       # Never show dependency details (DB, disk space) to an unauthenticated caller; health
