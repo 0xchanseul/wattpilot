@@ -51,7 +51,9 @@ Enum charging_session_status {
 //                        charging_schedules.charging_plan_id, charging_schedule_slots.charging_schedule_id,
 //                        charging_sessions.charging_schedule_id
 //   ON DELETE RESTRICT - charging_plan_slots.electricity_price_id, charging_schedule_slots.electricity_price_id
-// In practice nothing deletes users or EVs: an EV is soft-deleted (status INACTIVE) and users are never removed.
+// An EV is soft-deleted (status INACTIVE) and never removed. A user is removed only by the owner's account
+// deletion (POST /auth/delete-account) or, for demo visitors, by the scheduled demo cleanup; the cascades
+// above then delete everything the user owns.
 
 Table users {
   id bigint [pk, increment]

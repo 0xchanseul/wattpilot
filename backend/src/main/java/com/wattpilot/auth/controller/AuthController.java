@@ -2,8 +2,10 @@ package com.wattpilot.auth.controller;
 
 import com.wattpilot.auth.dto.AccessTokenResponse;
 import com.wattpilot.auth.dto.AuthResponse;
+import com.wattpilot.auth.dto.DeleteAccountRequest;
 import com.wattpilot.auth.dto.LoginRequest;
 import com.wattpilot.auth.dto.SignUpRequest;
+import com.wattpilot.auth.service.AccountDeletionService;
 import com.wattpilot.auth.service.AuthService;
 import com.wattpilot.common.exception.BusinessException;
 import com.wattpilot.common.exception.ErrorCode;
@@ -34,10 +36,13 @@ import java.time.Duration;
 public class AuthController {
 
     private final AuthService authService;
+    private final AccountDeletionService accountDeletionService;
     private final RefreshTokenCookieProperties cookieProperties;
 
-    public AuthController(AuthService authService, RefreshTokenCookieProperties cookieProperties) {
+    public AuthController(AuthService authService, AccountDeletionService accountDeletionService,
+                          RefreshTokenCookieProperties cookieProperties) {
         this.authService = authService;
+        this.accountDeletionService = accountDeletionService;
         this.cookieProperties = cookieProperties;
     }
 
@@ -99,6 +104,22 @@ public class AuthController {
         if (StringUtils.hasText(refreshToken)) {
             authService.logout(authenticatedUser.userId(), refreshToken);
         }
+        return ResponseEntity.noContent()
+                .header(HttpHeaders.SET_COOKIE, clearedRefreshTokenCookie())
+                .build();
+    }
+
+    /**
+     * A POST rather than a DELETE because it carries the password as a body, which OpenAPI 3.0 does
+     * not define for DELETE. Clears the refresh-token cookie like logout: the account's tokens are
+     * gone, so the browser must not keep sending the stale one.
+     */
+    @Operation(summary = "Delete the current account",
+            description = "Requires the password. Permanently deletes the account and everything it owns.")
+    @PostMapping("/delete-account")
+    public ResponseEntity<Void> deleteAccount(@AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+                                              @Valid @RequestBody DeleteAccountRequest request) {
+        accountDeletionService.deleteAccount(authenticatedUser.userId(), request.password());
         return ResponseEntity.noContent()
                 .header(HttpHeaders.SET_COOKIE, clearedRefreshTokenCookie())
                 .build();

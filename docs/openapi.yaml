@@ -154,6 +154,40 @@ paths:
               schema: { type: string }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
+  /auth/delete-account:
+    post:
+      tags: [Auth]
+      summary: Delete the current account
+      description: >-
+        Permanently and immediately deletes the signed-in account together with everything it owns:
+        EVs, charging plans, schedules, history and sessions, vehicle connections and refresh tokens.
+        Smartcar connections are also removed on Smartcar's side on a best-effort basis; a Smartcar
+        failure never blocks the deletion. Feedback is stored anonymously and is not affected.
+        This is a POST and not a DELETE because it carries the password in a body, which OpenAPI 3.0
+        does not define for DELETE. The password is required as confirmation. Clears the
+        `wp_refresh_token` cookie like logout.
+
+        Rejected with 403 `INCORRECT_PASSWORD` (deliberately not 401, so the client does not treat it
+        as an expired session), 403 `ACCOUNT_DELETION_NOT_ALLOWED` for demo visitor accounts and the
+        shared demo template account, and 409 `ACCOUNT_CHARGING_IN_PROGRESS` while a charge is running.
+      operationId: deleteAccount
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DeleteAccountRequest' }
+      responses:
+        '204':
+          description: Account deleted
+          headers:
+            Set-Cookie:
+              description: Clears the `wp_refresh_token` cookie (`Max-Age=0`).
+              schema: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
   /users/me:
     get:
       tags: [Auth]
@@ -1114,6 +1148,12 @@ components:
           description: >-
             When true, the session's absolute expiration is 30 days from this login instead of the
             default 7. Rotating the refresh token never extends that deadline. Omitted means false.
+
+    DeleteAccountRequest:
+      type: object
+      required: [password]
+      properties:
+        password: { type: string, format: password, writeOnly: true, example: WattPilot123! }
 
     AccessTokenResponse:
       type: object

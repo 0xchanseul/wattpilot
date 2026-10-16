@@ -961,7 +961,7 @@ header and reload: `sudo nginx -t && sudo systemctl reload nginx`.
 | Control | Setting | Why |
 | --- | --- | --- |
 | Request body size | `client_max_body_size 32k` | A legitimate request body is a few hundred bytes; stops oversized JSON before it reaches the parser |
-| `POST /api/v1/auth/login`, `/signup` | 10 requests/min per IP, burst 10 | Each attempt costs a BCrypt verification: bounds password guessing and CPU exhaustion |
+| `POST /api/v1/auth/login`, `/signup`, `/delete-account` | 10 requests/min per IP, burst 10 | Each attempt costs a BCrypt verification: bounds password guessing and CPU exhaustion. Account deletion checks the password too, so a stolen access token gets no unthrottled guessing endpoint |
 | `POST /api/v1/auth/refresh` | 60 requests/min per IP, burst 30 | Runs on every page load of a signed-in visitor, so it is looser |
 | Other `/api/` calls | 20 requests/s per IP, burst 40 | Coarse ceiling for write endpoints and the Smartcar telemetry fan-out |
 | `POST /api/v1/auth/demo` | 5 requests/min per IP, burst 5 | See "Demo login" |

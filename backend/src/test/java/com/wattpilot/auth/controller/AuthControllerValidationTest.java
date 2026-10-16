@@ -1,5 +1,6 @@
 package com.wattpilot.auth.controller;
 
+import com.wattpilot.auth.service.AccountDeletionService;
 import com.wattpilot.auth.service.AuthService;
 import com.wattpilot.common.security.RefreshTokenCookieProperties;
 import org.junit.jupiter.api.Test;
@@ -34,6 +35,19 @@ class AuthControllerValidationTest {
 
     @MockitoBean
     private AuthService authService;
+
+    @MockitoBean
+    private AccountDeletionService accountDeletionService;
+
+    @Test
+    void deleteAccountRejectsABlankPassword() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/delete-account")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"password\":\"  \"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.fieldErrors[0].field").value("password"));
+    }
 
     @Test
     void signUpRejectsAPasswordBelowTheMinimumLength() throws Exception {

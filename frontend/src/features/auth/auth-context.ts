@@ -11,6 +11,8 @@ export interface AuthContextValue {
   signUp: (input: SignUpInput) => Promise<void>
   startDemo: () => Promise<void>
   logout: () => Promise<void>
+  /** Permanently deletes the account; on success the local session ends as after a logout. */
+  deleteAccount: (password: string) => Promise<void>
   updateProfile: (input: UpdateProfileInput) => Promise<User>
 }
 

@@ -24,6 +24,12 @@ public enum ErrorCode {
     TOKEN_EXPIRED(HttpStatus.UNAUTHORIZED, "The token has expired."),
     EMAIL_ALREADY_EXISTS(HttpStatus.CONFLICT, "This email is already registered."),
     USER_NOT_FOUND(HttpStatus.NOT_FOUND, "User not found."),
+    // Not 401 on purpose: the client treats 401 as an expired session, and here the session is fine.
+    INCORRECT_PASSWORD(HttpStatus.FORBIDDEN, "The password is incorrect."),
+    // Demo visitor accounts (removed automatically) and the shared demo template account.
+    ACCOUNT_DELETION_NOT_ALLOWED(HttpStatus.FORBIDDEN, "This account cannot be deleted."),
+    // A charge is running for one of the account's EVs; deleting now would cut it off mid-session.
+    ACCOUNT_CHARGING_IN_PROGRESS(HttpStatus.CONFLICT, "A charge is in progress. Delete the account after it has finished."),
 
     // The demo login is off in this environment, or its template account is missing or has no EV.
     DEMO_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "The demo is not available right now."),

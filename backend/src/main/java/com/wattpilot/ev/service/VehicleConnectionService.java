@@ -149,6 +149,16 @@ public class VehicleConnectionService {
         remover.remove(connection);
     }
 
+    /**
+     * Removes every vehicle connection the user owns, on Smartcar's side as well (best-effort, see
+     * {@link VehicleConnectionRemover}). Used when the account is deleted, so no Smartcar link is
+     * left behind for a user who no longer exists.
+     */
+    @Transactional
+    public void removeAllForUser(Long userId) {
+        vehicleConnectionRepository.findAllByUserId(userId).forEach(remover::remove);
+    }
+
     private void cacheTelemetry(String cacheKey, SmartcarTelemetry telemetry, Instant now) {
         if (telemetryCache.size() >= TELEMETRY_CACHE_MAX_ENTRIES) {
             telemetryCache.values().removeIf(entry -> !entry.expiresAt().isAfter(now));

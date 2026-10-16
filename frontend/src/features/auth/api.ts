@@ -18,6 +18,10 @@ export function logout(): Promise<void> {
   return apiRequest<void>('/auth/logout', { method: 'POST' })
 }
 
+export function deleteAccount(password: string): Promise<void> {
+  return apiRequest<void>('/auth/delete-account', { method: 'POST', body: { password } })
+}
+
 export function fetchCurrentUser(): Promise<User> {
   return apiRequest<User>('/users/me')
 }

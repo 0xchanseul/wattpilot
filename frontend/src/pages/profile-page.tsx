@@ -1,5 +1,7 @@
+import { useState } from 'react'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useForm } from 'react-hook-form'
+import { Link, useNavigate } from 'react-router'
 import { toast } from 'sonner'
 import { AlertCircleIcon } from 'lucide-react'
 
@@ -22,6 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { DeleteAccountDialog } from '@/features/auth/delete-account-dialog'
 import { useAuth } from '@/features/auth/use-auth'
 import { updateProfileSchema, type UpdateProfileFormValues } from '@/features/auth/schema'
 import type { UpdateProfileInput } from '@/features/auth/types'
@@ -43,7 +46,9 @@ function changedFields(
 }
 
 export function ProfilePage() {
-  const { user, updateProfile } = useAuth()
+  const { user, updateProfile, deleteAccount } = useAuth()
+  const navigate = useNavigate()
+  const [deleteOpen, setDeleteOpen] = useState(false)
 
   const form = useForm<UpdateProfileFormValues>({
     resolver: zodResolver(updateProfileSchema),
@@ -141,6 +146,36 @@ export function ProfilePage() {
           </Form>
         </CardContent>
       </Card>
+
+      {user.demo ? null : (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-xl">Delete account</CardTitle>
+            <CardDescription>
+              Permanently delete your account and all of its data. See the{' '}
+              <Link to="/privacy" className="underline underline-offset-4">
+                privacy policy
+              </Link>{' '}
+              for what is stored.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button type="button" variant="destructive" onClick={() => setDeleteOpen(true)}>
+              Delete account
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      <DeleteAccountDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        onConfirm={async (password) => {
+          await deleteAccount(password)
+          toast.success('Your account has been deleted')
+          navigate('/login', { replace: true })
+        }}
+      />
     </div>
   )
 }

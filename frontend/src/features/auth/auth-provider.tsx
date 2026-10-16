@@ -6,6 +6,7 @@ import { refreshAccessToken } from '@/lib/api-client'
 import type { User } from '@/types/api'
 import { AuthContext, type AuthStatus, type AuthContextValue } from './auth-context'
 import {
+  deleteAccount as deleteAccountRequest,
   fetchCurrentUser,
   login as loginRequest,
   logout as logoutRequest,
@@ -89,6 +90,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [queryClient])
 
+  const deleteAccount = useCallback(
+    async (password: string) => {
+      // Unlike logout, a failure must reach the caller and leave the session intact.
+      await deleteAccountRequest(password)
+      authStore.setAccessToken(null)
+      setUser(null)
+      setStatus('unauthenticated')
+      queryClient.clear()
+    },
+    [queryClient],
+  )
+
   const updateProfile = useCallback(async (input: UpdateProfileInput) => {
     const updated = await updateProfileRequest(input)
     setUser(updated)
@@ -96,8 +109,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const value = useMemo<AuthContextValue>(
-    () => ({ status, user, login, signUp, startDemo, logout, updateProfile }),
-    [status, user, login, signUp, startDemo, logout, updateProfile],
+    () => ({ status, user, login, signUp, startDemo, logout, deleteAccount, updateProfile }),
+    [status, user, login, signUp, startDemo, logout, deleteAccount, updateProfile],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

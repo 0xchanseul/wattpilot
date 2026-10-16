@@ -50,3 +50,9 @@ flowchart TD
     V --> W["Store actual energy, cost, and savings\nfrom the plan/slot snapshot taken at confirmation"]
     W --> X[View Charging Result]
     X --> D
+
+    D --> Y[Profile: Delete Account]
+    Y --> Y1{"Password correct and\nno charge in progress?"}
+    Y1 -- No --> Y
+    Y1 -- Yes --> Y2["Account and all its data deleted immediately\n(feedback is anonymous and stays)"]
+    Y2 --> C

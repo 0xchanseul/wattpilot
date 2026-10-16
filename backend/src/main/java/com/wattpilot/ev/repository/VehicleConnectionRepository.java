@@ -3,6 +3,7 @@ package com.wattpilot.ev.repository;
 import com.wattpilot.ev.entity.VehicleConnection;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.util.List;
 import java.util.Optional;
 
 public interface VehicleConnectionRepository extends JpaRepository<VehicleConnection, Long> {
@@ -10,6 +11,8 @@ public interface VehicleConnectionRepository extends JpaRepository<VehicleConnec
     Optional<VehicleConnection> findByEvId(Long evId);
 
     Optional<VehicleConnection> findByEvIdAndUserId(Long evId, Long userId);
+
+    List<VehicleConnection> findAllByUserId(Long userId);
 
     boolean existsByEvId(Long evId);
 

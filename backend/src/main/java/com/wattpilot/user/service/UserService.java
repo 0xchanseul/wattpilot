@@ -81,6 +81,14 @@ public class UserService {
         return userRepository.deleteDemoUserById(userId) > 0;
     }
 
+    /** Deletes a regular account together with everything it owns (database cascade). */
+    @Transactional
+    public void deleteRegularAccount(Long userId) {
+        if (userRepository.deleteRegularUserById(userId) == 0) {
+            throw new BusinessException(ErrorCode.USER_NOT_FOUND);
+        }
+    }
+
     public Optional<User> findByEmail(String email) {
         return userRepository.findByEmail(normaliseEmail(email));
     }

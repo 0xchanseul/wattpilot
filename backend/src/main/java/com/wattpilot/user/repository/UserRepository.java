@@ -31,4 +31,12 @@ public interface UserRepository extends JpaRepository<User, Long> {
     @Modifying
     @Query("delete from User u where u.id = :id and u.demo = true")
     int deleteDemoUserById(@Param("id") Long id);
+
+    /**
+     * Deletes one regular (non-demo) account the same way as {@link #deleteDemoUserById}: a single
+     * statement, with the dependent rows removed by {@code ON DELETE CASCADE}.
+     */
+    @Modifying
+    @Query("delete from User u where u.id = :id and u.demo = false")
+    int deleteRegularUserById(@Param("id") Long id);
 }
