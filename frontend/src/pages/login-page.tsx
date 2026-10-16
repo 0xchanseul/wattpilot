@@ -151,6 +151,11 @@ export function LoginPage() {
             Create one
           </Link>
         </p>
+        <p className="text-muted-foreground mt-2 text-center text-xs">
+          <Link to="/privacy" className="underline underline-offset-4">
+            Privacy policy
+          </Link>
+        </p>
       </CardContent>
     </AuthShell>
   )

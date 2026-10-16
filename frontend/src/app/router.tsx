@@ -18,9 +18,12 @@ import { SavingsPage } from '@/pages/savings-page'
 import { ProfilePage } from '@/pages/profile-page'
 import { VehicleConnectionCallbackPage } from '@/pages/vehicle-connection-callback-page'
 import { NotFoundPage } from '@/pages/not-found-page'
+import { PrivacyPage } from '@/pages/privacy-page'
 
 export const router = createBrowserRouter([
   { index: true, element: <RootRedirect /> },
+  // Public for everyone, signed in or not: the policy is linked from sign-up and from the profile.
+  { path: 'privacy', element: <PrivacyPage /> },
   {
     element: <PublicOnlyRoute />,
     children: [

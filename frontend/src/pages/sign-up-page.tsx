@@ -145,6 +145,13 @@ export function SignUpPage() {
             <Button type="submit" className="w-full" disabled={form.formState.isSubmitting}>
               Create account
             </Button>
+            <p className="text-muted-foreground text-center text-xs">
+              By creating an account you agree to the{' '}
+              <Link to="/privacy" className="text-foreground underline underline-offset-4">
+                privacy policy
+              </Link>
+              .
+            </p>
           </form>
         </Form>
 

@@ -156,6 +156,11 @@ export function AppLayout() {
       <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
         <Outlet />
       </main>
+      <footer className="text-muted-foreground mx-auto max-w-6xl px-4 pt-2 pb-8 text-xs sm:px-6">
+        <Link to="/privacy" className="hover:text-foreground underline underline-offset-4">
+          Privacy policy
+        </Link>
+      </footer>
       <Button
         type="button"
         onClick={() => setFeedbackOpen(true)}
