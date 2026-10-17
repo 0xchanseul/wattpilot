@@ -27,7 +27,9 @@ set_image() {
 }
 
 restart_backend() {
-  (cd "$COMPOSE_DIR" && docker compose pull && docker compose up -d)
+  # --env-file is required: compose resolves ${BACKEND_IMAGE} from its own project .env, not from the
+  # service's env_file, so without it the image tag written by set_image would be ignored.
+  (cd "$COMPOSE_DIR" && docker compose --env-file "$ENV_FILE" pull && docker compose --env-file "$ENV_FILE" up -d)
 }
 
 health_check() {
