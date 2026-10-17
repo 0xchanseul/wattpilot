@@ -122,7 +122,7 @@ is Production, but the free-grant expiry still needs a plan (upgrade to a paid t
 | `backend/src/main/resources/application-prod.yml` | `prod` profile: managed DB with TLS, Swagger disabled, only `/actuator/health` exposed |
 | `backend/src/main/resources/application-cloud.yml` | `cloud` profile: currently unused, kept for a possible future throwaway environment |
 | `deploy/azure/docker-compose.yml` | Source of truth for what runs on the VM (backend container, bound to `127.0.0.1:8080`). Lives at `/app/wattpilot/docker-compose.yml` on the VM — must be copied/edited there by hand, it is not synced automatically |
-| `deploy/azure/.env.example` | Template for the real runtime env file, which lives at `/etc/wattpilot/wattpilot.env` on the VM (not `.env` next to the compose file) and is never committed. The template uses the `POSTGRES_*` variables read by `application-prod.yml`; the production VM's file instead sets `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME` and `SPRING_DATASOURCE_PASSWORD`, which take precedence over the `POSTGRES_*` values (the database user there is the application user, not the server administrator) |
+| `deploy/azure/.env.example` | Template for the real runtime env file, which lives at `/app/wattpilot/wattpilot.env` on the VM (next to the compose file, but named `wattpilot.env` rather than `.env`, so compose does not auto-load it and every command passes `--env-file wattpilot.env`) and is never committed. The template uses the `POSTGRES_*` variables read by `application-prod.yml`; the production VM's file instead sets `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME` and `SPRING_DATASOURCE_PASSWORD`, which take precedence over the `POSTGRES_*` values (the database user there is the application user, not the server administrator) |
 | `deploy/azure/nginx/wattpilot.conf` | nginx site config: TLS termination, static frontend (served from `/app/wattpilot/frontend/dist`), `/api/` reverse proxy |
 
 ## Procedure
@@ -248,8 +248,8 @@ Whichever path you use, `deploy/azure/nginx/wattpilot.conf`'s `root` line must m
    ```bash
    cd /app/wattpilot
    sudo nano docker-compose.yml   # confirm SPRING_PROFILES_ACTIVE: prod and the 127.0.0.1:8080 port binding
-   sudo nano /etc/wattpilot/wattpilot.env   # confirm CORS_ALLOWED_ORIGINS=https://wattpilot.dev,https://www.wattpilot.dev
-   docker compose pull && docker compose up -d   # `up -d`, not just `restart` — env/config changes need a recreate
+   nano wattpilot.env   # confirm CORS_ALLOWED_ORIGINS=https://wattpilot.dev,https://www.wattpilot.dev
+   docker compose --env-file wattpilot.env pull && docker compose --env-file wattpilot.env up -d   # `up -d`, not just `restart` — env/config changes need a recreate
    docker exec wattpilot-backend env | grep -E "SPRING_PROFILES_ACTIVE|CORS"   # confirm both took effect
    ```
 
@@ -340,6 +340,35 @@ scp -r dist\* azureuser@$VM_IP:/tmp/wattpilot-dist/
 # Frontend: VM
 ssh azureuser@$VM_IP 'sudo rsync -a --delete /tmp/wattpilot-dist/ /app/wattpilot/frontend/dist/'
 ```
+
+## Backfilling electricity prices after an outage
+
+The price scheduler only collects tomorrow's prices, so days missed while the backend was down are
+never retried. `backend/scripts/backfill-prices.sh` refills them from the provider and upserts into
+`electricity_prices`. It is safe to re-run: existing hours are overwritten, not duplicated.
+
+One-time setup. Copy both files to the same directory on the VM; the wrapper looks for the Python
+script next to itself.
+
+```bash
+# local
+scp backend\scripts\seed_electricity_prices.py backend\scripts\backfill-prices.sh azureuser@$VM_IP:/app/wattpilot/
+
+# VM
+chmod +x /app/wattpilot/backfill-prices.sh
+sudo apt install -y postgresql-client   # only if psql is missing
+```
+
+Usage on the VM:
+
+```bash
+/app/wattpilot/backfill-prices.sh 7 --dry-run   # preview, writes nothing
+/app/wattpilot/backfill-prices.sh               # last 7 days through tomorrow (default)
+/app/wattpilot/backfill-prices.sh 14            # last 14 days
+```
+
+The wrapper reads the `SPRING_DATASOURCE_*` values from `/app/wattpilot/wattpilot.env`, so no credentials are
+passed on the command line. Re-copy both files after changing either of them in the repository.
 
 ## Cost guardrails and teardown
 
@@ -516,8 +545,8 @@ and private DNS zone, and it can only be reached from the VM.
    point the backend at the restored server and recreate the container:
 
    ```bash
-   sudo nano /etc/wattpilot/wattpilot.env   # change the datasource host to the restored server
-   cd /app/wattpilot && docker compose up -d   # `up -d` is required; a plain restart does not reload env
+   cd /app/wattpilot && nano wattpilot.env   # change the datasource host to the restored server
+   docker compose --env-file wattpilot.env up -d   # `up -d` is required; a plain restart does not reload env
    curl https://www.wattpilot.dev/actuator/health
    ```
 
@@ -594,8 +623,8 @@ checks as CI against the exact commit being deployed, then deploys over SSH.
             deploy job (needs both)
       ↓
 SSH to the VM, run deploy/azure/deploy.sh <sha>:
-  - update BACKEND_IMAGE in /etc/wattpilot/wattpilot.env
-  - docker compose pull && up -d
+  - update BACKEND_IMAGE in /app/wattpilot/wattpilot.env
+  - docker compose --env-file wattpilot.env pull && up -d
   - poll /actuator/health; on failure, revert BACKEND_IMAGE to the
     previous tag, restart, and fail the workflow run
       ↓
@@ -685,7 +714,7 @@ POSTGRES_PORT
 - PostgreSQL container: `docker compose --env-file .env -f docker/postgres/docker-compose.yml up -d`
 - Backend: `application-local.yml` imports the file via `spring.config.import: optional:file:../../.env[.properties]` and maps the `POSTGRES_*` values onto the datasource. The import is optional, so plain environment variables also work.
 
-Production secrets live in `/etc/wattpilot/wattpilot.env` on the VM (never committed) — see
+Production secrets live in `/app/wattpilot/wattpilot.env` on the VM (never committed) — see
 "Production Architecture (Azure)" → "Files" above.
 
 ## Smartcar vehicle telemetry (V1.5, optional)
@@ -706,7 +735,7 @@ integration.
    - Local: `http://localhost:5173/vehicle-connections/callback`
    - Production: `https://www.wattpilot.dev/vehicle-connections/callback`
 4. Set these variables (local: root `.env`, see `.env.example`; production: append to
-   `/etc/wattpilot/wattpilot.env` on the VM, then `docker compose up -d` to pick them up — see
+   `/app/wattpilot/wattpilot.env` on the VM, then `docker compose --env-file wattpilot.env up -d` to pick them up — see
    `deploy/azure/.env.example`):
    ```
    SMARTCAR_ENABLED=true
@@ -911,7 +940,7 @@ UPDATE evs SET locked = TRUE WHERE id = <original-ev-id>;
 
 ### Enabling it
 
-Append to `/etc/wattpilot/wattpilot.env` on the VM, then `docker compose up -d` (see
+Append to `/app/wattpilot/wattpilot.env` on the VM, then `docker compose --env-file wattpilot.env up -d` (see
 `deploy/azure/.env.example`):
 
 ```

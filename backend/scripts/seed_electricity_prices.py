@@ -1,17 +1,24 @@
 #!/usr/bin/env python3
-"""Seed the local database with real electricity prices for backend testing.
+"""Load real electricity prices into the database on demand.
 
-This is a developer convenience script, not part of the application. It does the
-same job as the scheduled collection (fetch a day of hourly prices per Norwegian
-bidding zone from Hva koster strommen and upsert them into ``electricity_prices``),
-but on demand and without running the Spring Boot app.
+This is an operational helper, not part of the application. It does the same job as
+the scheduled collection (fetch a day of hourly prices per Norwegian bidding zone from
+Hva koster strommen and upsert them into ``electricity_prices``), but on demand and
+without running the Spring Boot app. Use it for local test data, or to backfill
+production after the scheduler was down (it only collects tomorrow's prices, so days
+missed during an outage are never retried).
 
 The upsert matches the ``uq_electricity_prices_provider_area_start`` constraint, so
 re-running for the same date and area overwrites instead of duplicating.
 
-Requirements: Python 3.8+ (standard library only) and the local Postgres container
-from ``docker/postgres/docker-compose.yml`` running. SQL is piped through
-``docker exec`` into that container, so no Python database driver is needed.
+Requirements: Python 3.8+ (standard library only) and ``psql``. No Python database
+driver is needed; the SQL is piped to ``psql``. Two targets:
+
+* Default: the local Postgres container from ``docker/postgres/docker-compose.yml``,
+  reached through ``docker exec``.
+* ``--database-url`` (or the ``WATTPILOT_DATABASE_URL`` environment variable), or the
+  standard ``PGHOST``/``PGUSER``/``PGPASSWORD``/``PGDATABASE`` variables: any Postgres
+  reachable with a local ``psql``, such as production.
 
 Examples::
 
@@ -23,6 +30,10 @@ Examples::
 
     # A range, print the SQL instead of running it
     python seed_electricity_prices.py --from 2025-01-10 --to 2025-01-15 --dry-run
+
+    # Production backfill after an outage: the last 7 days through tomorrow
+    export WATTPILOT_DATABASE_URL='postgresql://user:password@host:5432/wattpilot?sslmode=require'
+    python3 seed_electricity_prices.py --days 7
 """
 
 from __future__ import annotations
@@ -30,6 +41,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import os
 import subprocess
 import sys
 import urllib.error
@@ -44,7 +56,7 @@ ALL_AREAS = ["NO1", "NO2", "NO3", "NO4", "NO5"]
 
 PROVIDER = "HVA_KOSTER_STROMMEN"
 CURRENCY = "NOK"
-USER_AGENT = "WattPilot-dev-seed/1.0 (local backend testing)"
+USER_AGENT = "WattPilot-price-loader/1.0 (operational price loader)"
 
 
 class NotPublishedYet(Exception):
@@ -65,10 +77,20 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help="Last date to fetch, inclusive (YYYY-MM-DD). Default: tomorrow.",
     )
     parser.add_argument(
+        "--days", type=int, metavar="N",
+        help="Fetch the last N days through tomorrow. Overrides --from and --to.",
+    )
+    parser.add_argument(
         "--areas", nargs="+", metavar="AREA", default=ALL_AREAS,
         help=f"Price areas to fetch. Default: {' '.join(ALL_AREAS)}.",
     )
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL, help="Provider API base URL.")
+    parser.add_argument(
+        "--database-url", default=os.environ.get("WATTPILOT_DATABASE_URL"),
+        help="Postgres connection URL, applied with a local psql. Default: the "
+             "WATTPILOT_DATABASE_URL environment variable; when unset, the local "
+             "Docker container is used.",
+    )
     parser.add_argument("--container", default=DEFAULT_CONTAINER, help="Postgres container name.")
     parser.add_argument("--db", default=DEFAULT_DB, help="Database name.")
     parser.add_argument("--user", default=DEFAULT_USER, help="Database user.")
@@ -77,6 +99,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     )
     args = parser.parse_args(argv)
 
+    if args.days is not None:
+        if args.days < 1:
+            parser.error("--days must be at least 1")
+        args.date_from = today - dt.timedelta(days=args.days)
+        args.date_to = today + dt.timedelta(days=1)
     for area in args.areas:
         if area not in ALL_AREAS:
             parser.error(f"unknown area {area!r}; expected one of {', '.join(ALL_AREAS)}")
@@ -144,15 +171,19 @@ def build_sql(values: list[str]) -> str:
     )
 
 
-def run_psql(sql: str, container: str, db: str, user: str) -> None:
-    command = [
-        "docker", "exec", "-i", container,
-        "psql", "-U", user, "-d", db, "-v", "ON_ERROR_STOP=1", "-q", "-f", "-",
-    ]
+def run_psql(sql: str, args: argparse.Namespace) -> None:
+    psql_options = ["-v", "ON_ERROR_STOP=1", "-q", "-f", "-"]
+    if args.database_url:
+        command = ["psql", args.database_url, *psql_options]
+    elif os.environ.get("PGHOST"):
+        command = ["psql", *psql_options]
+    else:
+        command = ["docker", "exec", "-i", args.container,
+                   "psql", "-U", args.user, "-d", args.db, *psql_options]
     try:
         subprocess.run(command, input=sql, text=True, check=True)
     except FileNotFoundError:
-        sys.exit("error: 'docker' not found on PATH")
+        sys.exit(f"error: {command[0]!r} not found on PATH")
     except subprocess.CalledProcessError as error:
         sys.exit(f"error: psql failed with exit code {error.returncode}")
 
@@ -186,8 +217,8 @@ def main(argv: list[str]) -> None:
         print(sql)
         return
 
-    run_psql(sql, args.container, args.db, args.user)
-    print(f"\nUpserted {collected} rows into {args.db}.electricity_prices")
+    run_psql(sql, args)
+    print(f"\nUpserted {collected} rows into electricity_prices")
 
 
 if __name__ == "__main__":
