@@ -121,7 +121,7 @@ is Production, but the free-grant expiry still needs a plan (upgrade to a paid t
 | `backend/Dockerfile` | Multi-stage build of the backend image (built locally, not on the VM) |
 | `backend/src/main/resources/application-prod.yml` | `prod` profile: managed DB with TLS, Swagger disabled, only `/actuator/health` exposed |
 | `backend/src/main/resources/application-cloud.yml` | `cloud` profile: currently unused, kept for a possible future throwaway environment |
-| `deploy/azure/docker-compose.yml` | Source of truth for what runs on the VM (backend container, bound to `127.0.0.1:8080`). Lives at `/app/wattpilot/docker-compose.yml` on the VM — must be copied/edited there by hand, it is not synced automatically |
+| `deploy/azure/docker-compose.yml` | Source of truth for what runs on the VM (backend container, bound to `127.0.0.1:8080`). Lives at `/app/wattpilot/docker-compose.yml` on the VM and is overwritten from the repository on every deploy (see "CI/CD"), so never edit the VM's copy by hand |
 | `deploy/azure/.env.example` | Template for the real runtime env file, which lives at `/app/wattpilot/wattpilot.env` on the VM (next to the compose file, but named `wattpilot.env` rather than `.env`, so compose does not auto-load it and every command passes `--env-file wattpilot.env`) and is never committed. The template uses the `POSTGRES_*` variables read by `application-prod.yml`; the production VM's file instead sets `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME` and `SPRING_DATASOURCE_PASSWORD`, which take precedence over the `POSTGRES_*` values (the database user there is the application user, not the server administrator) |
 | `deploy/azure/nginx/wattpilot.conf` | nginx site config: TLS termination, static frontend (served from `/app/wattpilot/frontend/dist`), `/api/` reverse proxy |
 
@@ -622,7 +622,9 @@ checks as CI against the exact commit being deployed, then deploys over SSH.
       ↓                              ↓
             deploy job (needs both)
       ↓
-SSH to the VM, run deploy/azure/deploy.sh <sha>:
+SSH to the VM, run deploy/azure/deploy.sh <sha> <compose-file>:
+  - install the uploaded docker-compose.yml (validated first; the
+    previous copy is restored on rollback)
   - update BACKEND_IMAGE in /app/wattpilot/wattpilot.env
   - docker compose --env-file wattpilot.env pull && up -d
   - poll /actuator/health; on failure, revert BACKEND_IMAGE to the
@@ -1004,8 +1006,8 @@ resets on a backend restart), and at most 400 days
 per savings query (400 `VALIDATION_ERROR`).
 
 The backend container runs with a read-only root filesystem (`/tmp` is a tmpfs), no Linux capabilities and
-`no-new-privileges` (see `deploy/azure/docker-compose.yml`). The VM's copy of that file is not synced by
-the deploy workflow, so copy the change over by hand and run `docker compose up -d`. A restart is a short
+`no-new-privileges` (see `deploy/azure/docker-compose.yml`). The deploy workflow copies that file to
+the VM, so a change takes effect on the next deploy. The container is recreated, which is a short
 backend outage. If a feature ever has to write files, give it a volume or tmpfs instead of removing the
 restriction.
 
@@ -1044,10 +1046,8 @@ V1 uses a lightweight monitoring setup.
   consecutive failures mark it `unhealthy`, 60 s start period). Check the state with
   `docker ps` or `docker inspect -f '{{.State.Health.Status}}' wattpilot-backend`.
 
-  The VM's `/app/wattpilot/docker-compose.yml` is not synced by the deploy workflow (it only
-  swaps the image tag), so a change to this block takes effect only after the same edit is made on
-  the VM by hand, followed by `docker compose up -d` (this recreates the container, so expect a
-  short backend restart). A container that shows no health status in `docker ps` is still running
+  The deploy workflow copies `deploy/azure/docker-compose.yml` to the VM, so a change to this block
+  takes effect on the next deploy (the container is recreated, so expect a short backend restart). A container that shows no health status in `docker ps` is still running
   without the check.
 
   Docker only reports this state. `restart: unless-stopped` restarts the container when the process

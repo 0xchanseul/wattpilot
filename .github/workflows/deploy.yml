@@ -115,8 +115,10 @@ jobs:
         run: |
           scp -i ~/.ssh/wattpilot_deploy deploy/azure/deploy.sh \
             "${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}:/tmp/wattpilot-deploy.sh"
+          scp -i ~/.ssh/wattpilot_deploy deploy/azure/docker-compose.yml \
+            "${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}:/tmp/wattpilot-docker-compose.yml"
           ssh -i ~/.ssh/wattpilot_deploy "${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}" \
-            "chmod +x /tmp/wattpilot-deploy.sh && /tmp/wattpilot-deploy.sh ${{ needs.backend.outputs.image_tag }}"
+            "chmod +x /tmp/wattpilot-deploy.sh && /tmp/wattpilot-deploy.sh ${{ needs.backend.outputs.image_tag }} /tmp/wattpilot-docker-compose.yml"
 
       - name: Deploy frontend
         run: |
