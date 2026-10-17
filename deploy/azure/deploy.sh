@@ -12,7 +12,7 @@ set -euo pipefail
 # from GHCR and run docker compose here, same as the existing manual
 # redeploy procedure in docs/deployment.md.
 
-ENV_FILE="/etc/wattpilot/wattpilot.env"
+ENV_FILE="/app/wattpilot/wattpilot.env"
 COMPOSE_DIR="/app/wattpilot"
 IMAGE_REPO="ghcr.io/0xchanseul/wattpilot-backend"
 HEALTH_URL="http://127.0.0.1:8080/actuator/health"
