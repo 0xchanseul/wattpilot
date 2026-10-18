@@ -12,8 +12,11 @@ import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
 import java.net.SocketTimeoutException;
+import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -96,6 +99,66 @@ class HvaKosterStrommenClientTest {
         List<PriceSlot> slots = client.fetchDailyPrices(PriceArea.NO2, LocalDate.of(2026, 10, 25));
 
         assertThat(slots).hasSize(25);
+    }
+
+    @Test
+    void keepsEveryHourOfAFallBackDayWithTheOffsetTheProviderSent() {
+        // 2026-10-25 has 25 real hours: 00:00-02:00 at +02:00, then 02:00-24:00 again at +01:00.
+        List<PriceSlot> slots = fetchOsloDay(PriceArea.NO2, LocalDate.of(2026, 10, 25), "2026-10-24T22:00:00Z", 25);
+
+        assertThat(slots).hasSize(25);
+        // Jackson normalises the offsets to UTC, so the real instants are what must be preserved.
+        assertThat(slots.get(2).startsAt().toInstant()).isEqualTo(Instant.parse("2026-10-25T00:00:00Z"));
+        assertThat(slots.get(3).startsAt().toInstant()).isEqualTo(Instant.parse("2026-10-25T01:00:00Z"));
+        // The repeated 02:00 wall-clock hour exists twice and must not be collapsed into one slot.
+        assertThat(slots.stream().map(slot -> slot.startsAt().toInstant()).distinct().count()).isEqualTo(25);
+        assertThat(isContiguous(slots)).isTrue();
+        assertThat(Duration.between(slots.get(0).startsAt(), slots.get(24).endsAt()).toHours()).isEqualTo(25);
+    }
+
+    @Test
+    void keepsEveryHourOfASpringForwardDayWithoutInventingTheSkippedHour() {
+        // 2026-03-29 has 23 real hours: 01:00 at +01:00 is followed directly by 03:00 at +02:00.
+        List<PriceSlot> slots = fetchOsloDay(PriceArea.NO1, LocalDate.of(2026, 3, 29), "2026-03-28T23:00:00Z", 23);
+
+        assertThat(slots).hasSize(23);
+        // 01:00+01:00 is 00:00Z and the next provider hour, 03:00+02:00, is 01:00Z: no gap, no skipped hour.
+        assertThat(slots.get(1).startsAt().toInstant()).isEqualTo(Instant.parse("2026-03-29T00:00:00Z"));
+        assertThat(slots.get(2).startsAt().toInstant()).isEqualTo(Instant.parse("2026-03-29T01:00:00Z"));
+        assertThat(slots.get(2).startsAt().toInstant()).isEqualTo(slots.get(1).endsAt().toInstant());
+        assertThat(isContiguous(slots)).isTrue();
+        assertThat(Duration.between(slots.get(0).startsAt(), slots.get(22).endsAt()).toHours()).isEqualTo(23);
+    }
+
+    private List<PriceSlot> fetchOsloDay(PriceArea area, LocalDate date, String firstStartUtc, int hours) {
+        ZoneId oslo = ZoneId.of("Europe/Oslo");
+        StringBuilder json = new StringBuilder("[");
+        Instant cursor = Instant.parse(firstStartUtc);
+        for (int hour = 0; hour < hours; hour++) {
+            if (hour > 0) {
+                json.append(',');
+            }
+            Instant next = cursor.plus(Duration.ofHours(1));
+            json.append("""
+                    {"NOK_per_kWh":0.5,"EUR_per_kWh":0.05,"EXR":10.0,
+                     "time_start":"%s","time_end":"%s"}
+                    """.formatted(OffsetDateTime.ofInstant(cursor, oslo), OffsetDateTime.ofInstant(next, oslo)));
+            cursor = next;
+        }
+        json.append(']');
+        server.expect(requestTo(BASE_URL + "/prices/%d/%02d-%02d_%s.json".formatted(
+                        date.getYear(), date.getMonthValue(), date.getDayOfMonth(), area.name())))
+                .andRespond(withSuccess(json.toString(), MediaType.APPLICATION_JSON));
+        return client.fetchDailyPrices(area, date);
+    }
+
+    private static boolean isContiguous(List<PriceSlot> slots) {
+        for (int i = 1; i < slots.size(); i++) {
+            if (!slots.get(i).startsAt().toInstant().equals(slots.get(i - 1).endsAt().toInstant())) {
+                return false;
+            }
+        }
+        return true;
     }
 
     @Test

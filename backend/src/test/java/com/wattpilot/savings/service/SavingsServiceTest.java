@@ -14,11 +14,14 @@ import com.wattpilot.savings.repository.SavingsRepository;
 import com.wattpilot.savings.repository.SavingsSessionRow;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.Duration;
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -29,6 +32,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -120,6 +124,50 @@ class SavingsServiceTest {
 
         assertThat(summary.evId()).isEqualTo(5L);
         verify(savingsRepository, never()).summarize(any(), any(), any(), any());
+    }
+
+    @Test
+    void aFallBackDayBucketsAll25HoursOfTheOsloDayTogether() {
+        // 2026-10-25 runs from 22:00Z on the 24th to 23:00Z on the 25th: 25 real hours.
+        when(savingsRepository.findCompletedInRange(eq(USER_ID), eq(ChargingSessionStatus.COMPLETED), any(), any()))
+                .thenReturn(List.of(
+                        session("2026-10-24T21:30:00Z"),  // 23:30 on 10-24
+                        session("2026-10-24T22:30:00Z"),  // 00:30 on 10-25
+                        session("2026-10-25T00:30:00Z"),  // 02:30 on 10-25, first pass (+02:00)
+                        session("2026-10-25T01:30:00Z"),  // 02:30 on 10-25, second pass (+01:00)
+                        session("2026-10-25T22:30:00Z"),  // 23:30 on 10-25, the 25th hour
+                        session("2026-10-25T23:30:00Z"))); // 00:30 on 10-26
+
+        List<DailySavings> daily = service().getDaily(
+                USER_ID, LocalDate.of(2026, 10, 24), LocalDate.of(2026, 10, 26), null, null);
+
+        assertThat(daily).extracting(DailySavings::date)
+                .containsExactly(LocalDate.of(2026, 10, 24), LocalDate.of(2026, 10, 25), LocalDate.of(2026, 10, 26));
+        assertThat(daily).extracting(DailySavings::sessionCount).containsExactly(1, 4, 1);
+        assertThat(daily.get(1).savingsNok()).isEqualByComparingTo("8.00"); // 4 sessions * (10 - 8)
+    }
+
+    @Test
+    void theQueriedRangeOfAFallBackDayIs25HoursAndOfASpringForwardDay23Hours() {
+        when(savingsRepository.findCompletedInRange(eq(USER_ID), eq(ChargingSessionStatus.COMPLETED), any(), any()))
+                .thenReturn(List.of());
+        ArgumentCaptor<OffsetDateTime> since = ArgumentCaptor.forClass(OffsetDateTime.class);
+        ArgumentCaptor<OffsetDateTime> until = ArgumentCaptor.forClass(OffsetDateTime.class);
+
+        service().getDaily(USER_ID, LocalDate.of(2026, 10, 25), LocalDate.of(2026, 10, 25), null, null);
+        service().getDaily(USER_ID, LocalDate.of(2026, 3, 29), LocalDate.of(2026, 3, 29), null, null);
+
+        verify(savingsRepository, times(2)).findCompletedInRange(
+                eq(USER_ID), eq(ChargingSessionStatus.COMPLETED), since.capture(), until.capture());
+        assertThat(since.getAllValues().get(0).toInstant()).isEqualTo(Instant.parse("2026-10-24T22:00:00Z"));
+        assertThat(Duration.between(since.getAllValues().get(0), until.getAllValues().get(0)).toHours()).isEqualTo(25);
+        assertThat(since.getAllValues().get(1).toInstant()).isEqualTo(Instant.parse("2026-03-28T23:00:00Z"));
+        assertThat(Duration.between(since.getAllValues().get(1), until.getAllValues().get(1)).toHours()).isEqualTo(23);
+    }
+
+    private static SavingsSessionRow session(String completedAtUtc) {
+        return new SavingsSessionRow(OffsetDateTime.parse(completedAtUtc), new BigDecimal("10.00"),
+                new BigDecimal("10.00"), new BigDecimal("8.00"));
     }
 
     @Test

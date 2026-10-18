@@ -92,6 +92,35 @@ class PriceFreshnessEndpointTest {
         verify(electricityPriceService).hasCompleteDailyPrices(PriceArea.values()[0], LocalDate.of(2026, 7, 2));
     }
 
+    @Test
+    void targetsTheFallBackDayFromTheAfternoonBeforeIt() {
+        when(electricityPriceService.hasCompleteDailyPrices(any(), any())).thenReturn(true);
+
+        // 16:00 Oslo on 2026-10-24 is still summer time (+02:00), i.e. 14:00Z.
+        endpointAt("2026-10-24T14:00:00Z").check();
+
+        verify(electricityPriceService).hasCompleteDailyPrices(PriceArea.values()[0], LocalDate.of(2026, 10, 25));
+    }
+
+    @Test
+    void targetsTheSpringForwardDayFromTheAfternoonBeforeIt() {
+        when(electricityPriceService.hasCompleteDailyPrices(any(), any())).thenReturn(true);
+
+        // 16:00 Oslo on 2026-03-28 is still winter time (+01:00), i.e. 15:00Z.
+        endpointAt("2026-03-28T15:00:00Z").check();
+
+        verify(electricityPriceService).hasCompleteDailyPrices(PriceArea.values()[0], LocalDate.of(2026, 3, 29));
+    }
+
+    @Test
+    void staysBeforeTheDeadlineDuringBothPassesOfTheRepeatedNightHour() {
+        // 02:30 at +02:00 (00:30Z) and 02:30 at +01:00 (01:30Z) are different instants on 2026-10-25;
+        // both are far before the 16:00 deadline, so nothing is checked and the answer is UP.
+        assertThat(endpointAt("2026-10-25T00:30:00Z").check().getStatus()).isEqualTo(200);
+        assertThat(endpointAt("2026-10-25T01:30:00Z").check().getStatus()).isEqualTo(200);
+        verify(electricityPriceService, never()).hasCompleteDailyPrices(any(), any());
+    }
+
     private PriceFreshnessEndpoint endpointAt(String instant) {
         return endpointAt(instant, LocalTime.of(16, 0));
     }

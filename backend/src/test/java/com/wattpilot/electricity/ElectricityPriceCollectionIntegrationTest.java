@@ -23,8 +23,11 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.math.BigDecimal;
+import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -125,6 +128,66 @@ class ElectricityPriceCollectionIntegrationTest {
         assertThat(electricityPriceService.getDailyPrices(PriceArea.NO3, TARGET_DATE)).isEmpty();
         assertThat(electricityPriceService.getDailyPrices(PriceArea.NO4, TARGET_DATE)).hasSize(24);
         assertThat(electricityPriceService.getDailyPrices(PriceArea.NO5, TARGET_DATE)).hasSize(24);
+    }
+
+    @Test
+    void aFallBackDayIsCompleteOnlyWithAll25HoursAndIsThenSkipped() {
+        LocalDate fallBackDay = LocalDate.of(2026, 10, 25);
+        when(priceProvider.fetchDailyPrices(any(), eq(fallBackDay)))
+                .thenReturn(osloDaySlots("2026-10-24T22:00:00Z", 25, "0.50"));
+
+        ElectricityPriceCollectionResult first = collectionService.collectForAllAreas(fallBackDay);
+        Mockito.clearInvocations(priceProvider);
+        ElectricityPriceCollectionResult second = collectionService.collectForAllAreas(fallBackDay);
+
+        assertThat(first.countOf(AreaCollectionOutcome.Status.COLLECTED)).isEqualTo(5);
+        assertThat(electricityPriceService.getDailyPrices(PriceArea.NO1, fallBackDay)).hasSize(25);
+        assertThat(second.countOf(AreaCollectionOutcome.Status.ALREADY_COMPLETE)).isEqualTo(5);
+        verify(priceProvider, never()).fetchDailyPrices(any(), any());
+    }
+
+    @Test
+    void aFallBackDayStoredWithOnly24HoursIsNotTreatedAsComplete() {
+        LocalDate fallBackDay = LocalDate.of(2026, 10, 25);
+        List<PriceSlot> fullDay = osloDaySlots("2026-10-24T22:00:00Z", 25, "0.50");
+        electricityPriceService.importPrices(PriceProvider.HVA_KOSTER_STROMMEN, PriceArea.NO1,
+                fullDay.subList(0, 24));
+        when(priceProvider.fetchDailyPrices(any(), eq(fallBackDay))).thenReturn(fullDay);
+
+        collectionService.collectForAllAreas(fallBackDay);
+
+        // A fixed "24 hours means complete" rule would skip NO1 and leave the last hour missing.
+        verify(priceProvider).fetchDailyPrices(eq(PriceArea.NO1), eq(fallBackDay));
+        assertThat(electricityPriceService.getDailyPrices(PriceArea.NO1, fallBackDay)).hasSize(25);
+    }
+
+    @Test
+    void aSpringForwardDayIsCompleteWith23Hours() {
+        LocalDate springForwardDay = LocalDate.of(2026, 3, 29);
+        when(priceProvider.fetchDailyPrices(any(), eq(springForwardDay)))
+                .thenReturn(osloDaySlots("2026-03-28T23:00:00Z", 23, "0.50"));
+
+        collectionService.collectForAllAreas(springForwardDay);
+        Mockito.clearInvocations(priceProvider);
+        ElectricityPriceCollectionResult second = collectionService.collectForAllAreas(springForwardDay);
+
+        assertThat(electricityPriceService.getDailyPrices(PriceArea.NO1, springForwardDay)).hasSize(23);
+        assertThat(second.countOf(AreaCollectionOutcome.Status.ALREADY_COMPLETE)).isEqualTo(5);
+        verify(priceProvider, never()).fetchDailyPrices(any(), any());
+    }
+
+    /** Hourly slots from a real instant, each carrying the offset Oslo has at that moment. */
+    private static List<PriceSlot> osloDaySlots(String firstStartUtc, int hours, String pricePerKwh) {
+        ZoneId oslo = ZoneId.of("Europe/Oslo");
+        List<PriceSlot> slots = new ArrayList<>();
+        Instant cursor = Instant.parse(firstStartUtc);
+        for (int hour = 0; hour < hours; hour++) {
+            Instant next = cursor.plus(Duration.ofHours(1));
+            slots.add(new PriceSlot(OffsetDateTime.ofInstant(cursor, oslo), OffsetDateTime.ofInstant(next, oslo),
+                    new BigDecimal(pricePerKwh), "NOK"));
+            cursor = next;
+        }
+        return slots;
     }
 
     private static List<PriceSlot> hourlySlots(String pricePerKwh) {

@@ -9,7 +9,10 @@ import com.wattpilot.electricity.dto.PricePoint;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.time.Duration;
+import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -292,6 +295,90 @@ class ChargingWindowCalculatorTest {
                 ev("10", "10"), new BigDecimal("9"), EFFICIENCY, at("18:00"), at("23:00"), List.of());
         assertThat(((ChargingCandidatesResult.Infeasible) noPrices).reason())
                 .isEqualTo(OptimizationResult.Reason.INSUFFICIENT_PRICE_DATA);
+    }
+
+    @Test
+    void treatsTheRepeatedHourOnTheFallBackDayAsTwoDistinctRealHours() {
+        // 2026-10-25: clocks go back at 03:00 CEST to 02:00 CET, so 02:00-03:00 occurs twice. The
+        // four hours are 01:00+02:00, 02:00+02:00, 02:00+01:00 and 03:00+01:00.
+        List<PricePoint> prices = osloHourly("2026-10-24T23:00:00Z", "1.00", "0.50", "0.50", "1.00");
+
+        // 18 kWh at 9 kW effective -> 120 minutes; 20 kWh billed at the 10 kW charger draw.
+        ChargingCandidatesResult.Feasible result = feasible(calculator.calculateCandidates(
+                ev("10", "10"), new BigDecimal("18"), EFFICIENCY,
+                OffsetDateTime.parse("2026-10-25T01:00:00+02:00"),
+                OffsetDateTime.parse("2026-10-25T04:00:00+01:00"),
+                prices));
+
+        assertThat(result.estimatedDurationMinutes()).isEqualTo(120);
+        assertThat(result.candidates()).hasSize(3);
+        assertThat(result.candidates()).allSatisfy(candidate -> assertThat(
+                Duration.between(candidate.recommendedStartAt(), candidate.recommendedEndAt()).toMinutes())
+                .isEqualTo(120));
+
+        ChargingCandidate best = result.candidates().get(0);
+        assertThat(best.recommendedStartAt().toInstant()).isEqualTo(Instant.parse("2026-10-25T00:00:00Z"));
+        assertThat(best.recommendedEndAt().toInstant()).isEqualTo(Instant.parse("2026-10-25T02:00:00Z"));
+        assertThat(best.estimatedCostNok()).isEqualByComparingTo("10.0000");
+        assertThat(best.baselineCostNok()).isEqualByComparingTo("15.0000"); // 20 kWh * avg 0.75
+        assertThat(best.expectedSavingsNok()).isEqualByComparingTo("5.0000");
+        assertThat(best.expectedEnergyKwh()).isEqualByComparingTo("20.00");
+
+        assertThat(best.slots()).hasSize(2);
+        assertThat(best.slots().get(0).startsAt().getOffset().getId()).isEqualTo("+02:00");
+        assertThat(best.slots().get(1).startsAt().getOffset().getId()).isEqualTo("+01:00");
+        assertThat(best.slots()).allSatisfy(slot ->
+                assertThat(slot.plannedEnergyKwh()).isEqualByComparingTo("10.00"));
+
+        // The two costlier windows tie at 15.0000 and are ordered by start.
+        assertThat(result.candidates().get(1).recommendedStartAt().toInstant())
+                .isEqualTo(Instant.parse("2026-10-24T23:00:00Z"));
+        assertThat(result.candidates().get(2).recommendedStartAt().toInstant())
+                .isEqualTo(Instant.parse("2026-10-25T01:00:00Z"));
+    }
+
+    @Test
+    void treatsTheHourSkippedOnTheSpringForwardDayAsContinuousTime() {
+        // 2026-03-29: clocks jump from 02:00 CET straight to 03:00 CEST, so the wall clock has no
+        // 02:00-03:00. The two real hours are 01:00+01:00 and 03:00+02:00 and they are back to back.
+        List<PricePoint> prices = osloHourly("2026-03-29T00:00:00Z", "0.80", "0.30");
+
+        ChargingCandidatesResult.Feasible result = feasible(calculator.calculateCandidates(
+                ev("10", "10"), new BigDecimal("18"), EFFICIENCY,
+                OffsetDateTime.parse("2026-03-29T01:00:00+01:00"),
+                OffsetDateTime.parse("2026-03-29T04:00:00+02:00"),
+                prices));
+
+        assertThat(result.estimatedDurationMinutes()).isEqualTo(120);
+        assertThat(result.candidates()).hasSize(1);
+
+        ChargingCandidate only = result.candidates().get(0);
+        assertThat(only.estimatedCostNok()).isEqualByComparingTo("11.0000"); // 10 * 0.80 + 10 * 0.30
+        assertThat(only.baselineCostNok()).isEqualByComparingTo("11.0000");  // 20 kWh * avg 0.55
+        assertThat(only.expectedSavingsNok()).isEqualByComparingTo("0.0000");
+
+        assertThat(only.slots()).hasSize(2);
+        ChargingPlanSlot first = only.slots().get(0);
+        ChargingPlanSlot second = only.slots().get(1);
+        assertThat(Duration.between(first.startsAt(), first.endsAt()).toMinutes()).isEqualTo(60);
+        assertThat(Duration.between(second.startsAt(), second.endsAt()).toMinutes()).isEqualTo(60);
+        assertThat(first.endsAt().toInstant()).isEqualTo(second.startsAt().toInstant());
+        assertThat(first.startsAt().getOffset().getId()).isEqualTo("+01:00");
+        assertThat(second.startsAt().getOffset().getId()).isEqualTo("+02:00");
+    }
+
+    /** Hourly prices starting at a real instant, each rendered with the offset Oslo has at that moment. */
+    private static List<PricePoint> osloHourly(String firstStartUtc, String... pricesPerKwh) {
+        ZoneId oslo = ZoneId.of("Europe/Oslo");
+        List<PricePoint> points = new ArrayList<>();
+        Instant cursor = Instant.parse(firstStartUtc);
+        for (String price : pricesPerKwh) {
+            Instant next = cursor.plus(Duration.ofHours(1));
+            points.add(new PricePoint(OffsetDateTime.ofInstant(cursor, oslo),
+                    OffsetDateTime.ofInstant(next, oslo), new BigDecimal(price)));
+            cursor = next;
+        }
+        return points;
     }
 
     private static ChargingCandidatesResult.Feasible feasible(ChargingCandidatesResult result) {

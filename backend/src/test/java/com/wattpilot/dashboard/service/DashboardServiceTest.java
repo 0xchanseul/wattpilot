@@ -243,6 +243,33 @@ class DashboardServiceTest {
                 pricePerKwh, "NOK", OffsetDateTime.parse("2026-09-14T10:00:00Z"));
     }
 
+    @Test
+    void theThirtyDayTrendKeepsEachOsloDateOnceAndPlacesTheLastHourOfAFallBackDay() {
+        stubEmptyAggregates();
+        when(dashboardRepository.findCompletedSince(eq(USER_ID), eq(ChargingSessionStatus.COMPLETED), any()))
+                .thenReturn(List.of(
+                        // 23:30 on 2026-10-25 (the 25th hour of that day) and 00:30 on 2026-10-26.
+                        new DailyChargingRow(OffsetDateTime.parse("2026-10-25T22:30:00Z"),
+                                new BigDecimal("10.00"), new BigDecimal("8.00")),
+                        new DailyChargingRow(OffsetDateTime.parse("2026-10-25T23:30:00Z"),
+                                new BigDecimal("10.00"), new BigDecimal("7.00"))));
+        Clock afterTheChange = Clock.fixed(Instant.parse("2026-11-02T12:00:00Z"), ZoneOffset.UTC);
+        DashboardService dashboardService = new DashboardService(dashboardRepository, scheduleRepository,
+                planRepository, electricityPriceService, userService, afterTheChange);
+
+        DashboardResponse response = dashboardService.getDashboard(USER_ID);
+
+        // 2026-10-04 .. 2026-11-02 spans the fall-back day; every date still appears exactly once.
+        assertThat(response.savingsTrend()).hasSize(30);
+        assertThat(response.savingsTrend().stream().map(point -> point.date()).distinct().count()).isEqualTo(30);
+        assertThat(response.savingsTrend().get(0).date()).isEqualTo(LocalDate.of(2026, 10, 4));
+        assertThat(response.savingsTrend().get(29).date()).isEqualTo(LocalDate.of(2026, 11, 2));
+        assertThat(response.savingsTrend()).filteredOn(point -> point.date().equals(LocalDate.of(2026, 10, 25)))
+                .singleElement().satisfies(point -> assertThat(point.savingsNok()).isEqualByComparingTo("2.00"));
+        assertThat(response.savingsTrend()).filteredOn(point -> point.date().equals(LocalDate.of(2026, 10, 26)))
+                .singleElement().satisfies(point -> assertThat(point.savingsNok()).isEqualByComparingTo("3.00"));
+    }
+
     private static ChargingPlan plan(Long userId, Long evId, String evName) {
         ChargingCandidate candidate = new ChargingCandidate(1, at(0), at(1),
                 new BigDecimal("7.75"), new BigDecimal("2.05"), new BigDecimal("4.00"),
