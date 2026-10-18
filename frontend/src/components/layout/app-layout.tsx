@@ -49,6 +49,10 @@ export function AppLayout() {
           </button>
         </div>
       ) : null}
+      <div className="bg-muted/60 text-muted-foreground border-border/70 border-b px-4 py-1.5 text-center text-xs">
+        Charging in WattPilot is simulated &mdash; no real vehicle is controlled. Prices are spot prices
+        excluding VAT and grid fees.
+      </div>
       <header className="border-border/70 bg-background/85 sticky top-0 z-40 border-b backdrop-blur-md">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
           <Link to="/dashboard" className="flex shrink-0 items-center gap-2">

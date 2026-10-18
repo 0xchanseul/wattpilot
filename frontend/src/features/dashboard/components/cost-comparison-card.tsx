@@ -24,7 +24,7 @@ export function CostComparisonCard({ comparison }: { comparison: DashboardCostCo
   return (
     <div className="space-y-5">
       <div className="space-y-3">
-        <ComparisonBar label="Without optimization" value={baselineCostNok} widthPercent={100} tone="muted" />
+        <ComparisonBar label="Average-time cost" value={baselineCostNok} widthPercent={100} tone="muted" />
         <ComparisonBar
           label="With WattPilot"
           value={optimizedCostNok}
@@ -40,10 +40,15 @@ export function CostComparisonCard({ comparison }: { comparison: DashboardCostCo
             {formatNok(savingsNok)} saved
           </p>
           <p className="text-muted-foreground text-xs">
-            {formatPercent(savingsPercent)} lower than charging at typical prices
+            {formatPercent(savingsPercent)} lower than charging at the average price of each charge's time window
           </p>
         </div>
       </div>
+
+      <p className="text-muted-foreground text-xs">
+        &ldquo;Average-time cost&rdquo; is what the same energy would cost at the average spot price of the
+        time window you allowed for each charge. Prices exclude VAT and grid fees, and charging is simulated.
+      </p>
     </div>
   )
 }

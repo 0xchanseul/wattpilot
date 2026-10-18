@@ -125,6 +125,11 @@ export function ChargingSummaryCard({
           <p className="text-muted-foreground text-xs">
             MVP charging uses a single continuous window, so the slots above are consecutive.
           </p>
+          <p className="text-muted-foreground text-xs">
+            Costs use the hourly spot price excluding VAT and grid fees. &ldquo;Typical-time cost&rdquo; is the
+            same energy at the average spot price of your allowed time window, and savings are measured
+            against it.
+          </p>
         </div>
       </CardContent>
     </Card>
