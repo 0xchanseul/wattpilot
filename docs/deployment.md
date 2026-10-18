@@ -997,6 +997,9 @@ header and reload: `sudo nginx -t && sudo systemctl reload nginx`.
 | Other `/api/` calls | 20 requests/s per IP, burst 40 | Coarse ceiling for write endpoints and the Smartcar telemetry fan-out |
 | `POST /api/v1/auth/demo` | 5 requests/min per IP, burst 5 | See "Demo login" |
 
+`POST /api/v1/visits` falls under the general limit. The backend reads the visitor address from the `X-Real-IP`
+header nginx sets, so that header must keep being set in every proxied location.
+
 Over any limit nginx answers 429 with a JSON body. Visitors behind one NAT share an IP and therefore
 the limits.
 

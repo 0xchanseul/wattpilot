@@ -419,6 +419,17 @@ Table feedback {
   }
 }
 
+Table daily_visitors {
+  visit_date date [not null, note: 'Europe/Oslo calendar day']
+  visitor_hash char(64) [not null, note: 'HMAC-SHA256 (hex) of day, client IP and User-Agent, keyed from the application secret']
+
+  Indexes {
+    (visit_date, visitor_hash) [pk]
+  }
+
+  note: 'One row per distinct visitor per day. The hash includes the day, so the same visitor has a different value every day and rows cannot be linked across days; the raw IP is never stored. Visitors today = rows for today; total visits = all rows (a returning visitor counts once per day they visit, not once overall).'
+}
+
 // -------------------------
 // V1.5, implemented
 // -------------------------

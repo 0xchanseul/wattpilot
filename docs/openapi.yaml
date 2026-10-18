@@ -31,6 +31,7 @@ tags:
   - { name: Dashboard, description: Home-screen aggregate view }
   - { name: Savings, description: Cost and savings summaries }
   - { name: Feedback, description: Visitor feedback }
+  - { name: Visits, description: Visitor counting }
 
 paths:
   /auth/signup:
@@ -240,6 +241,20 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /visits:
+    post:
+      tags: [Visits]
+      summary: Record a visit
+      description: >-
+        Public; no token is needed or read. The frontend calls it once each time the app is opened.
+        The server counts each distinct visitor once per Europe/Oslo day, identified by a keyed hash of
+        the day, client IP and User-Agent; the address itself is never stored. Requests from crawlers,
+        scripts and clients without a User-Agent are acknowledged but not counted. Always answers 204.
+        There is no endpoint that reads the counts; they are only stored.
+      operationId: recordVisit
+      responses:
+        '204': { description: Visit handled }
 
   /evs:
     get:
