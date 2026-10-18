@@ -15,6 +15,7 @@ import com.wattpilot.ev.repository.VehicleModelRepository;
 import com.wattpilot.history.repository.ChargingHistoryRepository;
 import com.wattpilot.savings.repository.SavingsRepository;
 import com.wattpilot.user.repository.UserRepository;
+import com.wattpilot.visit.repository.DailyVisitorRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.health.actuate.endpoint.HealthEndpointGroups;
@@ -100,6 +101,9 @@ class PublicEndpointsSmokeTest {
 
     @MockitoBean
     FeedbackRepository feedbackRepository;
+
+    @MockitoBean
+    DailyVisitorRepository dailyVisitorRepository;
 
     @Test
     void apiDocsExposesConfiguredInfo() throws Exception {
