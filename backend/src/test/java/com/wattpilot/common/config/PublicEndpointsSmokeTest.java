@@ -157,7 +157,7 @@ class PublicEndpointsSmokeTest {
     }
 
     @Test
-    void 근diskSpaceThresholdIsRaisedAboveTheNeverWarningDefault() {
+    void diskSpaceThresholdIsRaisedAboveTheNeverWarningDefault() {
         // The Spring default (10MB) would only warn when the disk is already full; guard the setting
         // the uptime monitor relies on so it cannot be dropped silently.
         DataSize threshold = environment.getProperty("management.health.diskspace.threshold", DataSize.class);
