@@ -117,6 +117,19 @@ wattpilot:
     # Expired accounts deleted per run; the rest wait for the next run.
     cleanup-batch-size: ${DEMO_CLEANUP_BATCH_SIZE:200}
 
+  visit:
+    # Hosts of this site; a referrer from one of them counts as a direct visit.
+    own-hosts: ${VISIT_OWN_HOSTS:wattpilot.dev,localhost}
+    # Country-level .mmdb IP database (for example DB-IP Lite Country). Empty or missing: the visitor's
+    # country is not recorded. See docs/deployment.md, "Visitor statistics".
+    geoip-database: ${GEOIP_DATABASE:}
+
+  admin:
+    # bcrypt hash of the operator password for /admin. Empty keeps the statistics area closed.
+    password-hash: ${ADMIN_PASSWORD_HASH:}
+    # Lifetime of an admin login; there is no refresh, so the password is asked again after it.
+    session-ttl: ${ADMIN_SESSION_TTL:4h}
+
   integration:
     hva-koster-strommen:
       # Public electricity-price API (no key, no auth). Base URL without a trailing slash.

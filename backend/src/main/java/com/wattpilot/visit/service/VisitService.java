@@ -6,8 +6,11 @@ import org.springframework.stereotype.Service;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
+import java.util.Arrays;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -22,6 +25,9 @@ import java.util.regex.Pattern;
  * application secret because a plain hash of an IPv4 address can be reversed by trying every
  * address. Including the day makes the value different every day, so the table cannot be used to
  * follow one visitor over time.
+ *
+ * <p>The first visit of a day also records where the visitor came from and, when a country database
+ * is configured, which country the address belongs to. Neither can identify a person.
  */
 @Service
 public class VisitService {
@@ -36,23 +42,54 @@ public class VisitService {
             Pattern.CASE_INSENSITIVE);
 
     private final DailyVisitorRepository dailyVisitorRepository;
+    private final TrafficSourceClassifier trafficSourceClassifier;
+    private final CountryResolver countryResolver;
     private final Clock clock;
     private final SecretKeySpec hashKey;
 
-    public VisitService(DailyVisitorRepository dailyVisitorRepository, Clock clock, JwtProperties jwtProperties) {
+    public VisitService(DailyVisitorRepository dailyVisitorRepository,
+                        TrafficSourceClassifier trafficSourceClassifier,
+                        CountryResolver countryResolver,
+                        Clock clock,
+                        JwtProperties jwtProperties) {
         this.dailyVisitorRepository = dailyVisitorRepository;
+        this.trafficSourceClassifier = trafficSourceClassifier;
+        this.countryResolver = countryResolver;
         this.clock = clock;
         byte[] secret = Base64.getDecoder().decode(jwtProperties.secret());
         byte[] key = (KEY_CONTEXT + HexFormat.of().formatHex(secret)).getBytes(StandardCharsets.UTF_8);
         this.hashKey = new SecretKeySpec(key, "HmacSHA256");
     }
 
-    public void recordVisit(String clientIp, String userAgent) {
+    public void recordVisit(String clientIp, String userAgent, String referrer, String utmSource) {
         if (isNonHuman(userAgent)) {
             return;
         }
         LocalDate today = LocalDate.now(clock.withZone(ZONE));
-        dailyVisitorRepository.insertIfAbsent(today, hash(today, clientIp, userAgent));
+        dailyVisitorRepository.insertIfAbsent(
+                today,
+                hash(today, visitorNetwork(clientIp), userAgent),
+                trafficSourceClassifier.classify(referrer, utmSource),
+                countryResolver.resolve(clientIp));
+    }
+
+    /**
+     * An IPv6 device rotates the lower 64 bits of its address (privacy extensions), so hashing the
+     * full address would count one device several times a day. The /64 prefix identifies the network.
+     */
+    private static String visitorNetwork(String clientIp) {
+        if (clientIp == null || clientIp.indexOf(':') < 0) {
+            return clientIp;
+        }
+        try {
+            byte[] address = InetAddress.getByName(clientIp).getAddress();
+            if (address.length != 16) {
+                return clientIp;
+            }
+            return HexFormat.of().formatHex(Arrays.copyOf(address, 8)) + "/64";
+        } catch (UnknownHostException ex) {
+            return clientIp;
+        }
     }
 
     private static boolean isNonHuman(String userAgent) {

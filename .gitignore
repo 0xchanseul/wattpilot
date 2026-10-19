@@ -41,3 +41,6 @@ replay_pid*
 
 # Local scratch planning notes (not published)
 /TODO.md
+
+# Local IP-to-country database (see docs/deployment.md, "Visitor statistics")
+/geoip/

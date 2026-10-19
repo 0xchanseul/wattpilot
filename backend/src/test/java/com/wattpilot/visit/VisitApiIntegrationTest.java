@@ -6,6 +6,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.junit.jupiter.Container;
@@ -62,5 +63,35 @@ class VisitApiIntegrationTest {
                 .andExpect(status().isNoContent());
 
         assertEquals(0, jdbcTemplate.queryForObject("SELECT count(*) FROM daily_visitors", Integer.class));
+    }
+
+    @Test
+    void storesTheSourceFromTheReferrerOrUtmSourceOfTheFirstVisitOfTheDay() throws Exception {
+        jdbcTemplate.update("DELETE FROM daily_visitors");
+
+        mockMvc.perform(post("/api/v1/visits")
+                        .header("X-Real-IP", "203.0.113.20")
+                        .header(HttpHeaders.USER_AGENT, BROWSER_USER_AGENT)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"referrer\":\"https://www.linkedin.com/feed/\",\"utmSource\":null}"))
+                .andExpect(status().isNoContent());
+        // A later visit the same day does not overwrite the source of the first one.
+        mockMvc.perform(post("/api/v1/visits")
+                        .header("X-Real-IP", "203.0.113.20")
+                        .header(HttpHeaders.USER_AGENT, BROWSER_USER_AGENT)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"referrer\":\"https://www.reddit.com/\"}"))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(post("/api/v1/visits")
+                        .header("X-Real-IP", "203.0.113.21")
+                        .header(HttpHeaders.USER_AGENT, BROWSER_USER_AGENT))
+                .andExpect(status().isNoContent());
+
+        assertEquals(1, jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM daily_visitors WHERE source = 'linkedin'", Integer.class));
+        assertEquals(1, jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM daily_visitors WHERE source = 'direct'", Integer.class));
+        assertEquals(0, jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM daily_visitors WHERE source = 'reddit'", Integer.class));
     }
 }

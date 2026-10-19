@@ -1,5 +1,6 @@
 package com.wattpilot.visit.controller;
 
+import com.wattpilot.visit.dto.VisitRequest;
 import com.wattpilot.visit.service.VisitService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -7,6 +8,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -27,10 +29,15 @@ public class VisitController {
 
     @Operation(summary = "Record a visit")
     @PostMapping
-    public ResponseEntity<Void> recordVisit(HttpServletRequest request) {
+    public ResponseEntity<Void> recordVisit(HttpServletRequest request,
+                                            @RequestBody(required = false) VisitRequest body) {
         String realIp = request.getHeader(REAL_IP_HEADER);
         String clientIp = realIp != null && !realIp.isBlank() ? realIp : request.getRemoteAddr();
-        visitService.recordVisit(clientIp, request.getHeader(HttpHeaders.USER_AGENT));
+        visitService.recordVisit(
+                clientIp,
+                request.getHeader(HttpHeaders.USER_AGENT),
+                body != null ? body.referrer() : null,
+                body != null ? body.utmSource() : null);
         return ResponseEntity.noContent().build();
     }
 }

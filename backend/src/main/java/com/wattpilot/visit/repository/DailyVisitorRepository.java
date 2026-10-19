@@ -14,12 +14,17 @@ public class DailyVisitorRepository {
         this.jdbcClient = jdbcClient;
     }
 
-    /** Records the visitor for the day; a repeat visit the same day is silently ignored. */
-    public void insertIfAbsent(LocalDate visitDate, String visitorHash) {
-        jdbcClient.sql("INSERT INTO daily_visitors (visit_date, visitor_hash) VALUES (:date, :hash) "
-                        + "ON CONFLICT DO NOTHING")
+    /**
+     * Records the visitor for the day; a repeat visit the same day is silently ignored, so the source
+     * and country are those of the day's first visit.
+     */
+    public void insertIfAbsent(LocalDate visitDate, String visitorHash, String source, String countryCode) {
+        jdbcClient.sql("INSERT INTO daily_visitors (visit_date, visitor_hash, source, country_code) "
+                        + "VALUES (:date, :hash, :source, :country) ON CONFLICT DO NOTHING")
                 .param("date", visitDate)
                 .param("hash", visitorHash)
+                .param("source", source)
+                .param("country", countryCode)
                 .update();
     }
 }
