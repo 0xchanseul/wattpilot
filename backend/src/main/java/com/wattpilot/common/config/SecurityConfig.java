@@ -1,5 +1,8 @@
 package com.wattpilot.common.config;
 
+import com.wattpilot.admin.AdminProperties;
+import com.wattpilot.admin.security.AdminAuthenticationFilter;
+import com.wattpilot.admin.security.AdminTokenProvider;
 import com.wattpilot.common.security.CorsProperties;
 import com.wattpilot.common.security.JwtAuthenticationFilter;
 import com.wattpilot.common.security.JwtProperties;
@@ -38,6 +41,10 @@ import java.util.List;
  * {@code POST /auth/refresh}: it is constrained to {@code SameSite=Lax} and a narrow path (see
  * {@link RefreshTokenCookieProperties}), so a cross-site page still cannot drive that endpoint and
  * a separate CSRF token is not needed.
+ *
+ * <p>The operator statistics under {@code /api/v1/admin} are the other exception to bearer tokens:
+ * they use their own {@code SameSite=Strict} cookie (see {@link AdminTokenProvider}) and only read
+ * data, so they need no CSRF token either.
  */
 @Configuration
 @EnableWebSecurity
@@ -53,7 +60,10 @@ public class SecurityConfig {
             "/api/v1/auth/login",
             "/api/v1/auth/demo",
             "/api/v1/auth/refresh",
-            "/api/v1/visits"
+            "/api/v1/visits",
+            // Admin login is the credential exchange; logout only clears a cookie.
+            "/api/v1/admin/login",
+            "/api/v1/admin/logout"
     };
 
     private static final String[] PUBLIC_PATHS = {
@@ -77,6 +87,11 @@ public class SecurityConfig {
     }
 
     @Bean
+    public AdminTokenProvider adminTokenProvider(JwtProperties jwtProperties, AdminProperties adminProperties) {
+        return new AdminTokenProvider(jwtProperties, adminProperties);
+    }
+
+    @Bean
     public PasswordEncoder passwordEncoder() {
         // Stores the algorithm as a {bcrypt} prefix so hashes stay upgradable later.
         return PasswordEncoderFactories.createDelegatingPasswordEncoder();
@@ -86,6 +101,7 @@ public class SecurityConfig {
     public SecurityFilterChain securityFilterChain(
             HttpSecurity http,
             JwtTokenProvider jwtTokenProvider,
+            AdminTokenProvider adminTokenProvider,
             CorsConfigurationSource corsConfigurationSource,
             @Qualifier("handlerExceptionResolver") HandlerExceptionResolver handlerExceptionResolver)
             throws Exception {
@@ -100,12 +116,14 @@ public class SecurityConfig {
                 .authorizeHttpRequests(requests -> requests
                         .requestMatchers(HttpMethod.POST, PUBLIC_POST_PATHS).permitAll()
                         .requestMatchers(PUBLIC_PATHS).permitAll()
+                        .requestMatchers("/api/v1/admin/**").hasRole(AdminAuthenticationFilter.ADMIN_ROLE)
                         .anyRequest().authenticated())
                 .exceptionHandling(handling -> handling
                         .authenticationEntryPoint(new RestAuthenticationEntryPoint(handlerExceptionResolver))
                         .accessDeniedHandler(new RestAccessDeniedHandler(handlerExceptionResolver)))
                 .addFilterBefore(new JwtAuthenticationFilter(jwtTokenProvider, handlerExceptionResolver),
-                        UsernamePasswordAuthenticationFilter.class);
+                        UsernamePasswordAuthenticationFilter.class)
+                .addFilterAfter(new AdminAuthenticationFilter(adminTokenProvider), JwtAuthenticationFilter.class);
 
         return http.build();
     }

@@ -24,6 +24,11 @@ export const router = createBrowserRouter([
   { index: true, element: <RootRedirect /> },
   // Public for everyone, signed in or not: the policy is linked from sign-up and from the profile.
   { path: 'privacy', element: <PrivacyPage /> },
+  // Operator-only statistics; not linked from anywhere. Loaded on demand so no visitor downloads it.
+  {
+    path: 'admin',
+    lazy: async () => ({ Component: (await import('@/pages/admin-page')).AdminPage }),
+  },
   {
     element: <PublicOnlyRoute />,
     children: [

@@ -16,6 +16,7 @@ import com.wattpilot.history.repository.ChargingHistoryRepository;
 import com.wattpilot.savings.repository.SavingsRepository;
 import com.wattpilot.user.repository.UserRepository;
 import com.wattpilot.visit.repository.DailyVisitorRepository;
+import com.wattpilot.admin.repository.AnalyticsRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -98,6 +99,9 @@ class ProdProfileSwaggerDisabledTest {
 
     @MockitoBean
     DailyVisitorRepository dailyVisitorRepository;
+
+    @MockitoBean
+    AnalyticsRepository analyticsRepository;
 
     @Test
     void apiDocsIsNotServedInProd() throws Exception {

@@ -20,6 +20,8 @@ public enum ErrorCode {
     // Deliberately identical for an unknown email, a wrong password and a deactivated
     // account so the response cannot be used to probe which emails are registered.
     INVALID_CREDENTIALS(HttpStatus.UNAUTHORIZED, "Email or password is incorrect."),
+    // Also returned when no admin password is configured, so a closed admin area looks like a wrong password.
+    INVALID_ADMIN_PASSWORD(HttpStatus.UNAUTHORIZED, "The admin password is incorrect."),
     INVALID_TOKEN(HttpStatus.UNAUTHORIZED, "The token is invalid."),
     TOKEN_EXPIRED(HttpStatus.UNAUTHORIZED, "The token has expired."),
     EMAIL_ALREADY_EXISTS(HttpStatus.CONFLICT, "This email is already registered."),
