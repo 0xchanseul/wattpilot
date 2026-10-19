@@ -47,8 +47,9 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ErrorResponse> handleBusinessException(BusinessException ex, HttpServletRequest request) {
         ErrorCode errorCode = ex.errorCode();
-        log.warn("Business exception: code={}, message={}", errorCode.name(), ex.getMessage());
-        return problem(errorCode.status(), errorCode.name(), ex.getMessage(), request.getRequestURI(), newTraceId(), null);
+        String traceId = newTraceId();
+        log.warn("Business exception [traceId={}]: code={}, message={}", traceId, errorCode.name(), ex.getMessage());
+        return problem(errorCode.status(), errorCode.name(), ex.getMessage(), request.getRequestURI(), traceId, null);
     }
 
     /**
@@ -76,12 +77,16 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         List<FieldErrorDetail> fieldErrors = ex.getBindingResult().getFieldErrors().stream()
                 .map(error -> new FieldErrorDetail(error.getField(), rejectedValueOf(error), error.getDefaultMessage()))
                 .toList();
+        String traceId = newTraceId();
+        // Field names only: the rejected values can be personal data or secrets.
+        log.warn("Validation failed [traceId={}]: fields={}", traceId,
+                fieldErrors.stream().map(FieldErrorDetail::field).toList());
         ErrorResponse body = ErrorResponse.of(
                 HttpStatus.BAD_REQUEST.value(),
                 ErrorCode.VALIDATION_ERROR.name(),
                 ErrorCode.VALIDATION_ERROR.defaultMessage(),
                 path(request),
-                newTraceId(),
+                traceId,
                 fieldErrors);
         return problemEntity(HttpStatus.BAD_REQUEST, headers, body);
     }

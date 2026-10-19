@@ -1,8 +1,14 @@
 package com.wattpilot.common.exception;
 
 import com.wattpilot.common.exception.GlobalExceptionHandlerTest.TestController;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
+import com.jayway.jsonpath.JsonPath;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -14,7 +20,9 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
+import org.slf4j.LoggerFactory;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.notNullValue;
@@ -34,6 +42,50 @@ class GlobalExceptionHandlerTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    private final ListAppender<ILoggingEvent> logs = new ListAppender<>();
+    private Logger handlerLogger;
+
+    @BeforeEach
+    void captureHandlerLogs() {
+        handlerLogger = (Logger) LoggerFactory.getLogger(GlobalExceptionHandler.class);
+        logs.start();
+        handlerLogger.addAppender(logs);
+    }
+
+    @AfterEach
+    void releaseHandlerLogs() {
+        handlerLogger.detachAppender(logs);
+    }
+
+    @Test
+    void businessErrorIsLoggedWithTheSameTraceIdThatTheResponseCarries() throws Exception {
+        String body = mockMvc.perform(get("/test/business"))
+                .andExpect(status().isBadRequest())
+                .andReturn().getResponse().getContentAsString();
+        String traceId = JsonPath.read(body, "$.traceId");
+
+        assertThat(logs.list).extracting(ILoggingEvent::getFormattedMessage)
+                .anySatisfy(message -> assertThat(message)
+                        .contains("traceId=" + traceId)
+                        .contains("code=BAD_REQUEST")
+                        .contains("custom domain message"));
+    }
+
+    @Test
+    void validationErrorIsLoggedWithTheTraceIdAndFieldNamesOnly() throws Exception {
+        String body = mockMvc.perform(post("/test/validate")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"\"}"))
+                .andExpect(status().isBadRequest())
+                .andReturn().getResponse().getContentAsString();
+        String traceId = JsonPath.read(body, "$.traceId");
+
+        assertThat(logs.list).extracting(ILoggingEvent::getFormattedMessage)
+                .anySatisfy(message -> assertThat(message)
+                        .contains("traceId=" + traceId)
+                        .contains("[name]"));
+    }
 
     @Test
     void businessExceptionMapsToErrorCodeStatusAndName() throws Exception {
