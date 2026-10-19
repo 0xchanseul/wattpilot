@@ -32,6 +32,7 @@ tags:
   - { name: Savings, description: Cost and savings summaries }
   - { name: Feedback, description: Visitor feedback }
   - { name: Visits, description: Visitor counting }
+  - { name: Admin, description: Operator-only statistics, protected by a separate password }
 
 paths:
   /auth/signup:
@@ -250,11 +251,100 @@ paths:
         Public; no token is needed or read. The frontend calls it once each time the app is opened.
         The server counts each distinct visitor once per Europe/Oslo day, identified by a keyed hash of
         the day, client IP and User-Agent; the address itself is never stored. Requests from crawlers,
-        scripts and clients without a User-Agent are acknowledged but not counted. Always answers 204.
-        There is no endpoint that reads the counts; they are only stored.
+        scripts and clients without a User-Agent are acknowledged but not counted. Answers 204.
+
+        The body is optional. From the first visit of a day the server also stores a traffic source
+        (an explicit `utmSource`, otherwise the host of `referrer`, otherwise `direct`; a path or query
+        string is never kept) and, when a country database is configured, the ISO country code of the
+        address. The counts are read through `GET /admin/analytics`.
       operationId: recordVisit
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VisitRequest' }
       responses:
         '204': { description: Visit handled }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /admin/login:
+    post:
+      tags: [Admin]
+      summary: Log in as the operator
+      description: >-
+        Public. Checks the single operator password (`ADMIN_PASSWORD_HASH`, bcrypt) and, on success,
+        sets the `wp_admin_session` cookie: HttpOnly, Secure, SameSite=Strict, path `/api/v1/admin`,
+        valid for `ADMIN_SESSION_TTL` (default 4 hours) with no refresh. Nothing is returned in the
+        body. Answers 401 `INVALID_ADMIN_PASSWORD` for a wrong password and also when no admin
+        password is configured. nginx limits it to 5 requests per minute per IP.
+      operationId: adminLogin
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password: { type: string, minLength: 1, maxLength: 128 }
+      responses:
+        '204': { description: Logged in; the admin cookie is set }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /admin/logout:
+    post:
+      tags: [Admin]
+      summary: Log out of the admin area
+      description: Public; clears the admin cookie. Always answers 204.
+      operationId: adminLogout
+      security: []
+      responses:
+        '204': { description: The admin cookie is cleared }
+
+  /admin/session:
+    get:
+      tags: [Admin]
+      summary: Check the admin login
+      operationId: adminSession
+      security:
+        - adminCookie: []
+      responses:
+        '204': { description: The admin cookie is valid }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /admin/analytics:
+    get:
+      tags: [Admin]
+      summary: Visitor, sign-up and charging statistics
+      description: >-
+        Operator only (admin cookie). Dates are Europe/Oslo calendar days, both inclusive. Omit `from`
+        for all time and `to` for today. A user access token is rejected with 403.
+
+        Definitions: a visitor is counted once per day, so `visitorDays` sums distinct daily visitors
+        and a person who returns on three days counts three times. Sign-ups, schedules and users
+        exclude demo accounts and the demo template account, and fall when an account is deleted.
+        `signupsPer100VisitorDays` divides new sign-ups by visitor-days, so it understates the true
+        conversion rate. `activationRate` is the share of all current users who have ever created a
+        charging schedule, independent of the range. `daily` is zero-filled and limited to the most
+        recent 366 days of the range.
+      operationId: getAnalytics
+      security:
+        - adminCookie: []
+      parameters:
+        - { name: from, in: query, required: false, schema: { type: string, format: date }, description: Inclusive start date (Europe/Oslo); omit for all time }
+        - { name: to, in: query, required: false, schema: { type: string, format: date }, description: Inclusive end date (Europe/Oslo); omit for today }
+      responses:
+        '200':
+          description: Statistics for the range
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Analytics' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { description: "`to` is before `from` (INVALID_TIME_RANGE)" }
 
   /evs:
     get:
@@ -983,6 +1073,13 @@ components:
       description: >-
         Opaque refresh token delivered as an HttpOnly cookie by sign-up, login and refresh. The
         browser sends it automatically; it is not accessible to JavaScript.
+    adminCookie:
+      type: apiKey
+      in: cookie
+      name: wp_admin_session
+      description: >-
+        Operator session set by `POST /admin/login`: HttpOnly, Secure, SameSite=Strict, scoped to
+        `/api/v1/admin`. It is separate from user tokens and opens only the admin endpoints.
 
   headers:
     RefreshTokenCookie:
@@ -1085,6 +1182,60 @@ components:
           schema: { $ref: '#/components/schemas/ErrorResponse' }
 
   schemas:
+    VisitRequest:
+      type: object
+      properties:
+        referrer: { type: string, description: "document.referrer of the page; only its host is used. Empty for a direct visit." }
+        utmSource: { type: string, description: "utm_source of the landing URL; lowercased, [a-z0-9_.-] up to 50 characters, anything else is ignored" }
+    Analytics:
+      type: object
+      required: [to, summary, daily, sources, countries]
+      properties:
+        from: { type: string, format: date, nullable: true, description: Null for all time }
+        to: { type: string, format: date }
+        summary:
+          type: object
+          required: [visitorDays, newSignups, totalSignups, schedulesCreated, usersWithSchedule, totalUsers]
+          properties:
+            visitorDays: { type: integer, format: int64 }
+            newSignups: { type: integer, format: int64 }
+            totalSignups: { type: integer, format: int64, description: Accounts created up to the end of the range }
+            signupsPer100VisitorDays: { type: number, nullable: true, description: Null when there are no visitors }
+            schedulesCreated: { type: integer, format: int64, description: Cancelled schedules included }
+            usersWithSchedule: { type: integer, format: int64 }
+            totalUsers: { type: integer, format: int64 }
+            activationRate: { type: number, nullable: true, description: usersWithSchedule / totalUsers; null without users }
+        daily:
+          type: array
+          items:
+            type: object
+            required: [date, visitors, signups, schedules]
+            properties:
+              date: { type: string, format: date }
+              visitors: { type: integer, format: int64 }
+              signups: { type: integer, format: int64 }
+              schedules: { type: integer, format: int64 }
+        sources:
+          type: array
+          description: Largest first, at most 20 entries
+          items:
+            type: object
+            required: [visitors, share]
+            properties:
+              source: { type: string, nullable: true, description: "A label such as linkedin, reddit, google or direct; an unrecognised referrer is its host name. Null for visits recorded before sources were tracked." }
+              visitors: { type: integer, format: int64 }
+              share: { type: number, description: Fraction of all visitors in the range }
+        countries:
+          type: array
+          description: Largest first, at most 20 entries
+          items:
+            type: object
+            required: [name, visitors, share]
+            properties:
+              countryCode: { type: string, nullable: true, description: ISO 3166-1 alpha-2; null when unknown }
+              name: { type: string, description: English country name, or Unknown }
+              visitors: { type: integer, format: int64 }
+              share: { type: number }
     CreateFeedbackRequest:
       type: object
       required: [message]

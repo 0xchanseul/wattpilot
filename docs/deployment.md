@@ -983,6 +983,80 @@ Expect `201` with an `accessToken` and a `wp_refresh_token` cookie. `503 DEMO_UN
 demo is off, or the template account is missing or has no active EV. Each call creates a real demo
 account that the cleanup deletes later.
 
+# Visitor statistics and the admin page
+
+`/admin` shows visitors, traffic sources, countries, sign-ups and charging schedules created. It is
+for the operator only and is not linked from anywhere in the app.
+
+## The admin password
+
+There are no admin accounts. One password, stored as a bcrypt hash in `wattpilot.env`, opens the page
+and the `/api/v1/admin/**` endpoints. Without `ADMIN_PASSWORD_HASH` the area is closed to everyone.
+
+```bash
+# On the VM or locally; type the password when asked. Needs only Docker.
+docker run --rm -i httpd:2.4-alpine sh -c 'htpasswd -niBC 12 "" | tr -d ":\n"'
+```
+
+Put the printed value (it starts with `$2y$12$`) into `wattpilot.env` as `ADMIN_PASSWORD_HASH`. It
+contains `$` characters, so keep it in single quotes if the file is ever read by a shell. Use a random
+password of 20 or more characters. Changing the hash ends every open admin login at once, because the
+login token carries a fingerprint of the hash. Restart the backend after changing it.
+
+Login sets an HttpOnly, Secure, SameSite=Strict cookie scoped to `/api/v1/admin`, valid for
+`ADMIN_SESSION_TTL` (default 4 hours, no refresh). The admin API only reads, so it needs no CSRF token.
+Guessing is limited by nginx (5 login attempts per minute per IP) and by bcrypt's cost; there is
+deliberately no lockout in the application, because an attacker could use it to lock the operator out.
+Failed logins are logged as `Admin login failed`.
+
+## What is recorded for each visit
+
+`POST /api/v1/visits` stores one row per visitor per Europe/Oslo day in `daily_visitors`: a keyed hash
+of the day, IP address (an IPv6 address reduced to its /64 prefix) and User-Agent, the traffic source
+and the country. The IP address and the full referrer are never stored.
+
+- **Traffic source:** `utm_source` of the landing URL if present, otherwise the host of the referrer,
+  otherwise `direct`. Known hosts get a label (LinkedIn, Reddit, Google and others, see
+  `TrafficSourceClassifier`); an unknown host is stored as is. Add `?utm_source=linkedin` to a link you
+  post so a site that hides the referrer is still counted correctly. The first visit of a day decides
+  the source of that day.
+- **Country:** looked up in a local database file; no request leaves the server. Nothing finer than the
+  country is kept.
+- **Not counted:** crawlers and scripts (User-Agent), the `/admin` page, and any browser where the
+  operator has logged in to `/admin` (it sets `wp_no_track` in that browser's local storage).
+
+`VISIT_OWN_HOSTS` (default `wattpilot.dev,localhost`) lists the host names of the site itself; a
+referrer from one of them counts as a direct visit.
+
+## The country database
+
+Download the free DB-IP Lite Country database (CC BY 4.0, no account; the licence requires attribution,
+which the privacy page gives as "IP geolocation by DB-IP" with a link) and keep it next to
+`docker-compose.yml`:
+
+```bash
+# on the VM, in /app/wattpilot
+mkdir -p geoip
+curl -fsSL "https://download.db-ip.com/free/dbip-country-lite-$(date +%Y-%m).mmdb.gz" | gunzip > geoip/dbip-country-lite.mmdb
+```
+
+`docker-compose.yml` mounts that folder read-only at `/geoip` and points `GEOIP_DATABASE` at the file.
+The database is published monthly; repeat the command each month (a cron entry is enough) and the
+backend picks the new file up on its next restart. If the file is missing the backend still starts and
+visits are stored without a country. Check the current licence terms on the DB-IP site before relying
+on this.
+
+## Reading the numbers
+
+- **Visitors** is the number of visitor-days: someone who comes back on three days counts three times.
+  A real "unique visitors" figure is impossible by design, because the hash changes every day.
+- **Sign-up conversion** is new sign-ups per 100 visitor-days. It understates the true rate.
+- **Sign-ups and schedules** exclude demo accounts and the demo template account, and drop when an
+  account is deleted.
+- **Schedules created** counts cancelled schedules too. The share of users who have made one is over
+  all current users, whatever range is selected.
+- Rows from before this feature have no source or country and show as "Unknown (before tracking)".
+
 # Request Limits and Security Headers
 
 `deploy/azure/nginx/wattpilot.conf` is the first line of defence against abusive traffic; the
@@ -996,8 +1070,10 @@ header and reload: `sudo nginx -t && sudo systemctl reload nginx`.
 | `POST /api/v1/auth/refresh` | 60 requests/min per IP, burst 30 | Runs on every page load of a signed-in visitor, so it is looser |
 | Other `/api/` calls | 20 requests/s per IP, burst 40 | Coarse ceiling for write endpoints and the Smartcar telemetry fan-out |
 | `POST /api/v1/auth/demo` | 5 requests/min per IP, burst 5 | See "Demo login" |
+| `POST /api/v1/visits` | 30 requests/min per IP, burst 10 | Public and unauthenticated, and a changed User-Agent makes a new row, so one address must not be able to fill the table. A browser calls it once per page load |
+| `POST /api/v1/admin/login` | 5 requests/min per IP, burst 3 | One operator logs in; a low rate makes guessing the password impractical. See "Visitor statistics and the admin page" |
 
-`POST /api/v1/visits` falls under the general limit. The backend reads the visitor address from the `X-Real-IP`
+The backend reads the visitor address from the `X-Real-IP`
 header nginx sets, so that header must keep being set in every proxied location.
 
 Over any limit nginx answers 429 with a JSON body. Visitors behind one NAT share an IP and therefore

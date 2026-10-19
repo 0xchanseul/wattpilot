@@ -79,6 +79,17 @@ export function PrivacyPage() {
               of each request. They are kept only for a limited period and used for operating and
               securing the service.
             </li>
+            <li>
+              <strong>Visit statistics:</strong> when you open the app we count you once per day, to
+              see how many people use the service. We keep a code that cannot be traced back to your IP
+              address and changes every day, the site you came from (its host name only), and your
+              country. We do not use cookies for this and do not follow you across days. IP
+              geolocation by{' '}
+              <a href="https://db-ip.com" className="underline" rel="noreferrer">
+                DB-IP
+              </a>
+              .
+            </li>
           </List>
         </Section>
 

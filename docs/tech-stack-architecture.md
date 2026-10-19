@@ -42,6 +42,7 @@ com.wattpilot
 ├─ dashboard
 ├─ savings
 ├─ visit
+├─ admin
 ├─ integration
 └─ common
 ```

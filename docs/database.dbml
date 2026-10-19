@@ -421,7 +421,9 @@ Table feedback {
 
 Table daily_visitors {
   visit_date date [not null, note: 'Europe/Oslo calendar day']
-  visitor_hash char(64) [not null, note: 'HMAC-SHA256 (hex) of day, client IP and User-Agent, keyed from the application secret']
+  visitor_hash char(64) [not null, note: 'HMAC-SHA256 (hex) of day, client IP (an IPv6 address reduced to its /64 prefix) and User-Agent, keyed from the application secret']
+  source varchar(100) [note: 'Traffic source of the first visit of the day: a label such as linkedin, reddit, google, direct, a utm_source value, or the host of an unrecognised referrer. Never a full URL. NULL for rows written before V14.']
+  country_code char(2) [note: 'ISO 3166-1 alpha-2 country of the visitor address, from a local IP database. NULL when unknown or when no database is configured.']
 
   Indexes {
     (visit_date, visitor_hash) [pk]
